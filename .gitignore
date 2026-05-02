@@ -1,0 +1,4 @@
+node_modules/
+dist/
+.orchestrator/*
+!.orchestrator/config.json
