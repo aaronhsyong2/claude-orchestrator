@@ -42,13 +42,13 @@ Logical grouping of issues from the Claude Orchestrator epic (#1) into PRs, orde
 ## PR 3: Infrastructure Modules
 
 **Branch:** `feat/infrastructure-modules`
-**Status:** pending
+**Status:** merged
 
 | Issue | Title | Status |
 |-------|-------|--------|
-| #6 | Worktree Manager: create/remove worktrees with configurable base branch | Open |
-| #7 | Worker Manager: spawn claude -p, parse NDJSON stream, manage lifecycle | Open |
-| #8 | Verification Pipeline: serial fail-fast command execution | Open |
+| #6 | Worktree Manager: create/remove worktrees with configurable base branch | Closed |
+| #7 | Worker Manager: spawn claude -p, parse NDJSON stream, manage lifecycle | Closed |
+| #8 | Verification Pipeline: serial fail-fast command execution | Closed |
 
 > Depends on: PR 2
 

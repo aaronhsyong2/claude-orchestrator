@@ -72,8 +72,10 @@ Each entry logs:
 | 32 | "Execute with correct skill" | implementation/execute | /prp-implement — 3 files, 12 tests, all green. No deviations. | Cleanest implementation — no issues encountered |
 | 33 | "Feature complete?" | review/acceptance | All 9 acceptance criteria met | Same pattern as #6, #7 |
 | 34 | "Code review, verify, address, loop until clean" | review/auto-loop | 2 rounds: R1 2 HIGH (cwd validation, timeout), R2 APPROVE | Converged faster — simpler module, fewer findings |
-| 35 | "Commit with branch prefix and issue number" | commit | Committed 44899f0 — feat: Issue #8 | Same commit pattern |
-| 36 | "Push and create PR with detailed description, test steps, issue links" | pr/create | Pushed, created PR #21 with closes #6 #7 #8, full test plan, review history | Orchestrator should auto-generate PR body from commits + review artifacts |
+| 35 | "Commit with branch prefix + issue number" | commit | Committed 44899f0 — feat: Issue #8 | Same pattern |
+| 36 | "Push and create PR" | pr/create | PR #21 created, closes #6 #7 #8 | Auto-generated PR body from commits |
+| 37 | "Code review the recently created PR" | review/pr-level | 4 agents: code-reviewer, silent-failure-hunter, type-design, test-analyzer. Found 4 HIGH, 3 MEDIUM across modules | PR-level review catches cross-module issues individual reviews missed |
+| 38 | "Add comments, address, verify, re-review until clean" | review/pr-fix-loop | Posted findings as PR comment, fixed all 10 issues, re-reviewed → APPROVE. 225 tests. | Full PR fix loop: comment → fix → verify → re-review → approve |
 
 ---
 
