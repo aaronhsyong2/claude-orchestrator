@@ -88,3 +88,8 @@ export interface ReconcileCorrection {
 	readonly slug: string;
 	readonly reason: string;
 }
+
+export interface WorktreeInfo {
+	readonly branch: string;
+	readonly worktreePath: string;
+}
