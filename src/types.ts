@@ -3,6 +3,22 @@ export interface VerifyCommand {
 	readonly command: string;
 }
 
+export interface StepResult {
+	readonly name: string;
+	readonly command: string;
+	readonly exitCode: number;
+	readonly duration: number;
+	readonly stdout: string;
+	readonly stderr: string;
+}
+
+export interface VerifyResult {
+	readonly success: boolean;
+	readonly failedStep?: string;
+	readonly error?: string;
+	readonly steps: readonly StepResult[];
+}
+
 export type IssueSourceType = 'github' | 'linear' | 'jira';
 
 export interface IssueSource {

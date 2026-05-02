@@ -64,7 +64,14 @@ Each entry logs:
 | 24 | "Are we feature complete for issue seven?" | review/acceptance | Checked 12 criteria — 11 exact match, 1 deviation (killWorker takes pid not id) | Same acceptance check pattern as #6 |
 | 25 | "Are you saying issue nine will resolve this?" | review/clarification | Clarified design options A (stateless pid) vs B (stateful registry). User chose A. | Orchestrator should surface design decisions when acceptance criteria diverges from implementation |
 | 26 | "Stick with option A. Mark it as done." | review/decision | Feature complete. Stateless pid approach confirmed. | User makes design call, orchestrator records decision |
-| 27 | "Code review, address, verify, re-review — loop until clean" | review/auto-loop | Running autonomous review→fix→verify→review loop | Orchestrator should support this as a single command — "review until clean" |
+| 27 | "Code review, address, verify, re-review — loop until clean" | review/auto-loop | 3 review rounds: R1 3 HIGH, R2 2 HIGH, R3 APPROVE. All fixed. | Orchestrator should support "review until clean" as single command |
+| 28 | "Commit with same format" | commit | Committed 2aff0d6 — feat: Issue #7 | Same commit pattern — orchestrator auto-commits after approval |
+| 29 | "/pick-up next issue in pr group" | planning/triage | Fetched #8 (Verification Pipeline), validated, routed to /prp-plan | Last issue in PR 3 — same flow |
+| 30 | "Proceed" | planning/confirm | Invoking /prp-plan for #8 | Same single-word confirm |
+| 31 | (auto: /prp-plan) | planning/design | 4-task plan, Medium complexity, confidence 9 | Simplest module yet — serial loop with fail-fast |
+| 32 | "Execute with correct skill" | implementation/execute | /prp-implement — 3 files, 12 tests, all green. No deviations. | Cleanest implementation — no issues encountered |
+| 33 | "Feature complete?" | review/acceptance | All 9 acceptance criteria met | Same pattern as #6, #7 |
+| 34 | "Code review, verify, address, loop until clean" | review/auto-loop | 2 rounds: R1 2 HIGH (cwd validation, timeout), R2 APPROVE | Converged faster — simpler module, fewer findings |
 
 ---
 
