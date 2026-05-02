@@ -20,22 +20,22 @@ Logical grouping of issues from the Claude Orchestrator epic (#1) into PRs, orde
 ## PR 1: Project Foundation
 
 **Branch:** `feat/project-foundation`
-**Status:** pending
+**Status:** merged
 
 | Issue | Title | Status |
 |-------|-------|--------|
-| #2 | Project scaffold: pnpm + tsup + Biome + vitest + Ink + ESM | Open |
-| #3 | CLI entry: init, start, status subcommands with lock file | Open |
+| #2 | Project scaffold: pnpm + tsup + Biome + vitest + Ink + ESM | Closed |
+| #3 | CLI entry: init, start, status subcommands with lock file | Closed |
 
 ## PR 2: Core Data Modules
 
 **Branch:** `feat/core-data-modules`
-**Status:** pending
+**Status:** merged
 
 | Issue | Title | Status |
 |-------|-------|--------|
-| #4 | PR Plan Parser: markdown parsing + dependency graph construction | Open |
-| #5 | Status Manager: file-based state CRUD + context file lifecycle | Open |
+| #4 | PR Plan Parser: markdown parsing + dependency graph construction | Closed |
+| #5 | Status Manager: file-based state CRUD + context file lifecycle | Closed |
 
 > Depends on: PR 1
 
