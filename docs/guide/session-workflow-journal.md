@@ -81,16 +81,322 @@ Each entry logs:
 
 ## Workflow Pattern Summary
 
-_(filled in at session end)_
-
 ### Stages Observed
-<!-- List the distinct stages the user went through -->
+
+1. **PR Group Selection** — identify next PR group from dependency graph
+2. **Branch Setup** — create feature branch from main
+3. **Issue Loop** (repeated per issue in PR group):
+   a. **Pick Up** — fetch issue, validate labels/blockers, route to plan
+   b. **Plan** — explore codebase, generate implementation plan
+   c. **Implement** — execute plan, write code + tests, validate
+   d. **Acceptance Check** — verify all criteria met, identify gaps
+   e. **Gap Fix** — address missing criteria (if any)
+   f. **Review Loop** — code review → fix → verify → re-review (until clean)
+   g. **Commit** — commit with `feat: Issue #N` format
+4. **PR Creation** — push, create PR with description + test plan + issue links
+5. **PR-Level Review** — multi-agent review across all modules
+6. **PR Fix Loop** — post findings → fix → verify → re-review (until clean)
+7. **Docs Commit** — single combined doc commit (PR plan status, journal, reports)
+8. **Merge** — merge PR, do not delete branch
 
 ### Friction Points
-<!-- Where did the user have to repeat themselves or clarify? -->
+
+- **Confirmation prompts** — 8 of 38 inputs were just "proceed", "yes", "do it" (entries 5, 7, 14, 20, 22, 30, 32, 35). These are flow-continuation signals, not decisions.
+- **Repeated review instructions** — User had to say "code review, address, verify, loop until clean" multiple times (entries 11, 16, 27, 34, 38). Should be one command.
+- **Skill invocation** — User had to say "execute with the correct skill" (entry 32) when the intent was obvious from context.
+- **Feature completeness check** — User manually asked "are we feature complete?" each time (entries 12, 24, 33). Should auto-check after implementation.
 
 ### Automation Candidates
-<!-- Steps the orchestrator could handle autonomously -->
+
+| Step | Current | Automated | Human Input Needed? |
+|------|---------|-----------|-------------------|
+| PR group selection | Manual query | Auto after previous PR merges | No |
+| Branch creation | Manual command | Auto from PR plan branch field | No |
+| Issue pick-up | `/pick-up` command | Auto-advance through PR group | No |
+| Route confirmation | "Yes, proceed" | Auto for `ready-for-agent` issues | No |
+| Plan generation | `/prp-plan` | Auto after pick-up | No |
+| Implementation | `/prp-implement` | Auto after plan | No |
+| Acceptance check | Manual "feature complete?" | Auto after implementation | No (unless gaps found) |
+| Gap fix | "Do it" | Auto for small gaps | Maybe (design decisions) |
+| Review loop | Manual "review until clean" | Auto: review→fix→verify→repeat | No |
+| Commit | Manual "commit" | Auto after review approval | No |
+| PR creation | Manual "push and create PR" | Auto after all issues committed | No |
+| PR-level review | Manual trigger | Auto after PR creation | No |
+| PR fix loop | Manual trigger | Auto: same as issue review loop | No |
+| Docs commit | Manual trigger | Auto before merge | No |
+| Merge | Manual trigger | Auto after PR approval | No |
 
 ### Manual Checkpoints
-<!-- Steps that require human judgment and should remain manual -->
+
+These steps genuinely require human judgment and should remain manual:
+
+1. **Design decisions** — when acceptance criteria diverge from implementation (e.g., `killWorker(id)` vs `killWorker(pid)` — entry 25-26)
+2. **Scope decisions** — whether to fix a gap now or defer (e.g., config reading in #6 — entries 12-14)
+3. **PR group ordering override** — if dependencies change or priorities shift
+4. **Merge timing** — coordinating with team freezes, releases
+5. **Plan review for complex issues** — medium/large complexity plans should be reviewable before execution
+
+### Documentation as Interface
+
+The orchestrator communicates with the human through documentation. The human's primary interaction surface is their editor, not the terminal.
+
+**Principle:** At any decision point, all relevant context must already be written to a file that the human can review in their editor before responding.
+
+| Decision Point | Document to Review | Location |
+|---------------|-------------------|----------|
+| Plan approval (complex issues) | Implementation plan | `.claude/PRPs/plans/<issue>.plan.md` |
+| Acceptance gap | Acceptance criteria vs implementation report | `.claude/PRPs/reports/<issue>-report.md` |
+| Design decision | Issue body + agent brief + implementation context | GitHub issue + report |
+| PR review findings | Review comment on PR | GitHub PR comments |
+| Review loop findings | Code review report | `.claude/PRPs/reviews/<pr>-review.md` |
+
+**How it works in practice:**
+1. Orchestrator runs autonomously until a decision is needed
+2. Orchestrator writes all context to the appropriate doc file
+3. Orchestrator pauses and notifies the human (TUI badge / system notification)
+4. Human opens the doc in their editor, reviews, makes a decision
+5. Human responds in the TUI and orchestrator resumes
+
+This means the orchestrator should ensure consistent documentation at every stage — plans, reports, reviews — so the human always has a clear artifact to review when prompted.
+
+### User Input Classification
+
+| Category | Count | % of Total | Examples |
+|----------|-------|-----------|---------|
+| Flow continuation ("proceed", "yes", "do it") | 8 | 21% | Entries 5, 7, 14, 20, 22, 30, 32, 35 |
+| Loop trigger ("review until clean", "commit") | 8 | 21% | Entries 9, 11, 15, 16, 27, 28, 34, 38 |
+| Status query ("feature complete?", "what's next?") | 5 | 13% | Entries 2, 12, 24, 33, 37 |
+| Directive with judgment ("push and create PR") | 5 | 13% | Entries 3, 4, 18, 36, 38 |
+| Design decision | 3 | 8% | Entries 13, 25, 26 |
+| Meta/setup | 1 | 3% | Entry 1 |
+| Auto (no human input) | 8 | 21% | Entries 6, 8, 10, 17, 21, 23, 31 |
+
+**Key insight:** 55% of human inputs (flow continuation + loop triggers + status queries) could be eliminated with an autonomous orchestrator. Only 8% required genuine design decisions.
+
+---
+
+## Orchestrator Flow
+
+The following flowchart represents the complete PR group lifecycle. Nodes marked `[AUTO]` require no human input. Nodes marked `[HUMAN]` require judgment. Nodes marked `[PAUSE]` write context to a doc file and wait for human review.
+
+```
+PR GROUP LIFECYCLE
+==================
+
+[AUTO] Read PR plan → identify next PR group from dependency graph
+         |
+[AUTO] Create branch from main (name from PR plan)
+         |
+         v
+  +==================+
+  | ISSUE LOOP       |  (repeat for each issue in PR group)
+  |==================+
+  |                  |
+  | [AUTO] Fetch issue from tracker
+  |    |
+  |    v
+  | [AUTO] Validate labels + check blockers
+  |    |
+  |    v
+  | [AUTO] Route: enhancement + ready-for-agent → plan + implement
+  |    |
+  |    +----[HUMAN]----+  (if ready-for-human or ambiguous)
+  |    |               |
+  |    v               v
+  | [AUTO] Assess   [HUMAN] Clarify scope/design
+  |   complexity       |
+  |    |               |
+  |    v               |
+  | Complexity?        |
+  |    |       |       |
+  |    | small | medium/large
+  |    |       |       |
+  |    |       v       |
+  |    |  [AUTO] Explore codebase
+  |    |       |       |
+  |    |       v       |
+  |    |  [AUTO] Generate plan
+  |    |       |       |
+  |    |       v       |
+  |    |  Complex? ----+
+  |    |    |     |
+  |    |    | no  | yes
+  |    |    |     v
+  |    |    | [PAUSE] Write plan to .claude/PRPs/plans/<issue>.plan.md
+  |    |    |     |   Human reviews plan in editor
+  |    |    |     v
+  |    |    | [HUMAN] Approve / adjust plan
+  |    |    |     |
+  |    v    v     v
+  | [AUTO] Execute (plan or direct implementation)
+  |    |   Code + tests + validate
+  |    |
+  |    v
+  | [AUTO] Check acceptance criteria
+  |    |   Write report to .claude/PRPs/reports/<issue>-report.md
+  |    |
+  |    +------- gaps found? ------+
+  |    |                          |
+  |    | no gaps                  v
+  |    |                 [PAUSE] Write gap analysis to report
+  |    |                    |
+  |    |                    v
+  |    |                 [HUMAN?] Design decision needed?
+  |    |                    |            |
+  |    |                    | no         | yes
+  |    |                    v            v
+  |    |              [AUTO] Fix    [HUMAN] Decide
+  |    |                gap          approach
+  |    |                    |            |
+  |    +<-------------------+<-----------+
+  |    |
+  |    v
+  |  +------------------+
+  |  | REVIEW LOOP      |  (repeat until APPROVE)
+  |  |------------------+
+  |  |                  |
+  |  | [AUTO] Code review (agent)
+  |  |    |   Write findings to .claude/PRPs/reviews/<issue>-review.md
+  |  |    v
+  |  | Issues found?
+  |  |    |         |
+  |  |    | yes     | no → APPROVE
+  |  |    v         |
+  |  | [AUTO] Fix   |
+  |  |    |         |
+  |  | [AUTO] Verify |
+  |  |    |         |
+  |  |    +--loop---+
+  |  +------------------+
+  |    |
+  |    v
+  | [AUTO] Commit (feat: Issue #N)
+  |    |
+  |    v
+  | More issues in PR group?
+  |    |         |
+  |    | yes     | no
+  |    +--loop   |
+  |              |
+  +==============+
+         |
+         v
+[AUTO] Push branch + create PR (description, test plan, issue links)
+         |
+         v
+  +------------------+
+  | PR REVIEW LOOP   |  (repeat until APPROVE)
+  |------------------+
+  |                  |
+  | [AUTO] Multi-agent PR review
+  |   (code, silent-failure, types, tests)
+  |    |
+  |    v
+  | [AUTO] Post findings as PR comment
+  |    |
+  |    v
+  | Issues found?
+  |    |         |
+  |    | yes     | no → APPROVE
+  |    v         |
+  | [AUTO] Fix all issues
+  | [AUTO] Verify (typecheck + lint + test + build)
+  |    |         |
+  |    +--loop---+
+  +------------------+
+         |
+         v
+[AUTO] Single docs commit (PR plan status, reports, journal)
+         |
+         v
+[AUTO] Merge PR (do not delete branch)
+         |
+         v
+       DONE → next PR group
+```
+
+### Complexity Gate
+
+Not all issues need a plan. The orchestrator should assess complexity and skip planning for simple issues.
+
+| Complexity | Planning | Plan Review | Examples |
+|-----------|----------|-------------|---------|
+| **Small** | Skip — implement directly from acceptance criteria | No | Single-file changes, config updates, small bug fixes |
+| **Medium** | Auto-generate plan, execute immediately | No | Multi-file features following established patterns |
+| **Large** | Auto-generate plan, pause for human review | Yes — `[PAUSE]` | New subsystems, cross-cutting concerns, unfamiliar patterns |
+
+The complexity assessment uses signals from the issue:
+- Number of acceptance criteria
+- Whether the issue touches existing patterns or introduces new ones
+- Dependencies on external APIs or unfamiliar libraries
+- Whether the agent brief flags ambiguity
+
+### Model Routing
+
+Different steps have different reasoning requirements. Planning and review need deep reasoning to explore edge cases and make architectural judgments. Implementation and verification are execution from a well-defined spec — the plan already contains all the context, so extended reasoning adds latency without value.
+
+**Default model assignment:**
+
+| Step | Model | Reasoning |
+|------|-------|-----------|
+| Complexity assessment | Opus | Judgment call — needs to weigh multiple signals |
+| Codebase exploration | Opus | Deep analysis of patterns, conventions, edge cases |
+| Plan generation | Opus | Architectural decisions, task decomposition, risk assessment |
+| **Implementation** | **Sonnet** | Executing from a comprehensive plan — no novel reasoning needed |
+| **Verification** | **Sonnet** | Running commands, capturing output — pure execution |
+| Acceptance check | Opus | Comparing implementation against criteria — needs judgment |
+| Code review | Opus | Finding bugs, security issues, pattern violations — deep analysis |
+| **Fix from review** | **Sonnet** | Applying well-defined fixes from review findings |
+| PR review | Opus | Cross-module analysis, architectural consistency |
+| **PR fix from review** | **Sonnet** | Same as fix from review — executing defined changes |
+
+**Observation from this session:** During implementation (entries 8, 23, 32), Opus spent significant time in extended thinking despite the plan containing all necessary context (file paths, code snippets, patterns, imports, gotchas). A comprehensive plan eliminates the need for reasoning during execution — the agent just needs to follow instructions.
+
+**Configuration:** Model assignment should be configurable per step in `.orchestrator/config.json`:
+
+```json
+{
+  "models": {
+    "plan": "opus",
+    "implement": "sonnet",
+    "verify": "sonnet",
+    "review": "opus",
+    "fix": "sonnet"
+  }
+}
+```
+
+This allows tuning based on plan quality. If plans are consistently comprehensive (as observed in this session), Sonnet handles implementation well. If plans are thin, Opus may still be needed for implementation.
+
+### Loop Convergence Observed
+
+| Loop | Issue #6 | Issue #7 | Issue #8 | PR-Level |
+|------|----------|----------|----------|----------|
+| Review rounds | 6 | 3 | 2 | 2 |
+| Findings R1 | 1C 4H 3M 3L | 3H 4M 3L | 2H 2M 2L | 4H 3M |
+| Findings final | 0 | 0 | 0 | 0 |
+| Pattern | Converges — each round finds fewer/smaller issues | Same | Same | Same |
+
+Review rounds decrease as the agent learns codebase patterns within the session. Issue #6 needed 6 rounds (first module, establishing patterns). Issue #8 needed only 2 (patterns established, simpler module).
+
+### Orchestrator Command (Proposed)
+
+The entire flow above could be triggered by a single command:
+
+```
+orchestrator start plan.md
+```
+
+The orchestrator runs autonomously until it hits a `[PAUSE]` or `[HUMAN]` node:
+- Writes all relevant context to a doc file (plan, report, review)
+- Sends a notification (TUI badge + system notification)
+- Waits for human input
+
+The human's workflow:
+1. See notification in TUI dashboard
+2. Open the referenced doc file in their editor
+3. Review the context (plan, gap analysis, design decision)
+4. Return to the TUI and respond (approve, adjust, decide)
+5. Orchestrator resumes
+
+This keeps the human in their editor — not reading terminal output or parsing agent logs. The documentation IS the interface.
