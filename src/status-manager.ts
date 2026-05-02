@@ -1,14 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { GitBranchState, GroupStatus, GroupStep, ReconcileCorrection } from './types.js';
-
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
-
-function assertValidSlug(slug: string): void {
-	if (!SLUG_RE.test(slug)) {
-		throw new Error(`Invalid slug "${slug}" — must be lowercase alphanumeric with hyphens`);
-	}
-}
+import { assertValidSlug } from './validation.js';
 
 const VALID_STEPS: readonly GroupStep[] = [
 	'idle',

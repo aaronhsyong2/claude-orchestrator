@@ -93,3 +93,33 @@ export interface WorktreeInfo {
 	readonly branch: string;
 	readonly worktreePath: string;
 }
+
+// --- Worker Manager types ---
+
+export interface NdjsonSystemMessage {
+	readonly type: 'system';
+	readonly subtype: string;
+	readonly session_id: string;
+}
+
+export interface NdjsonAssistantMessage {
+	readonly type: 'assistant';
+	readonly message: unknown;
+}
+
+export interface NdjsonResultMessage {
+	readonly type: 'result';
+	readonly result: string;
+	readonly is_error: boolean;
+}
+
+export type NdjsonMessage = NdjsonSystemMessage | NdjsonAssistantMessage | NdjsonResultMessage;
+
+export type WorkerEventType = 'spawned' | 'message' | 'error' | 'exited';
+
+export interface WorkerHandle {
+	readonly id: string;
+	readonly issue: string;
+	readonly groupSlug: string;
+	readonly pid: number;
+}
