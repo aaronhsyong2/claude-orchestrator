@@ -63,3 +63,28 @@ export interface StatusEntry {
 	readonly issues_total: number;
 	readonly issues_done: number;
 }
+
+export type GroupStep = 'idle' | 'cloning' | 'coding' | 'verifying' | 'reviewing' | 'merging';
+
+export interface GroupStatus {
+	readonly pr_group: string;
+	readonly branch: string;
+	readonly current_issue: number | null;
+	readonly step: GroupStep;
+	readonly step_result: string;
+	readonly issues_completed: readonly number[];
+	readonly issues_remaining: readonly number[];
+	readonly blocked: boolean;
+	readonly needs_input: boolean;
+	readonly last_updated: string;
+}
+
+export interface GitBranchState {
+	readonly branches: readonly string[];
+	readonly branchHasCommits: ReadonlyMap<string, boolean>;
+}
+
+export interface ReconcileCorrection {
+	readonly slug: string;
+	readonly reason: string;
+}
