@@ -110,6 +110,39 @@ export interface WorktreeInfo {
 	readonly worktreePath: string;
 }
 
+// --- Scheduler types ---
+
+export interface SchedulerDeps {
+	readonly createWorktree: (branch: string, baseBranch?: string) => WorktreeInfo;
+	readonly removeWorktree: (branch: string) => void;
+	readonly spawnWorker: (
+		issue: string,
+		groupSlug: string,
+		worktreePath: string,
+		onEvent: (event: WorkerEventType, data: NdjsonMessage | number | Error) => void,
+		contextContent?: string,
+	) => WorkerHandle;
+	readonly killWorker: (pid: number) => Promise<void>;
+	readonly verify: (cwd: string, commands: readonly VerifyCommand[]) => Promise<VerifyResult>;
+	readonly readGroupStatus: (groupSlug: string) => GroupStatus | null;
+	readonly writeGroupStatus: (groupSlug: string, data: GroupStatus) => void;
+	readonly readContext: (groupSlug: string, issue: string) => string | null;
+	readonly deleteContext: (groupSlug: string, issue: string) => void;
+}
+
+export interface GroupResult {
+	readonly pr_number: number;
+	readonly branch: string;
+	readonly completed: boolean;
+	readonly failedIssue?: number;
+	readonly error?: string;
+}
+
+export interface AssignWorkResult {
+	readonly assigned: number;
+	readonly results: readonly GroupResult[];
+}
+
 // --- Worker Manager types ---
 
 export interface NdjsonSystemMessage {
