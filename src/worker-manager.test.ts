@@ -43,11 +43,11 @@ interface FakeProc extends EventEmitter {
 	readonly stdin: null;
 }
 
-function createFakeProc(pid = 12345): FakeProc {
+function createFakeProc(pid: number | undefined = 12345): FakeProc {
 	const proc = new EventEmitter() as FakeProc;
 	Object.defineProperty(proc, 'stdout', { value: new PassThrough() });
 	Object.defineProperty(proc, 'stderr', { value: new PassThrough() });
-	Object.defineProperty(proc, 'pid', { value: pid });
+	Object.defineProperty(proc, 'pid', { value: pid, configurable: true });
 	Object.defineProperty(proc, 'stdin', { value: null });
 	return proc;
 }
@@ -229,6 +229,18 @@ describe('spawnWorker', () => {
 		expect(() =>
 			spawnWorker('10', 'pr-1', '/nonexistent/path', () => {}, undefined, tmpDir),
 		).toThrow(/does not exist/);
+	});
+
+	it('throws when spawn returns no PID', () => {
+		const proc = createFakeProc();
+		// Override pid to undefined after creation
+		Object.defineProperty(proc, 'pid', { value: undefined, configurable: true });
+		spawnMock.mockReturnValue(proc as unknown as childProcess.ChildProcess);
+		activeProc = proc;
+
+		expect(() => spawnWorker('10', 'pr-1', tmpDir, () => {}, undefined, tmpDir)).toThrow(
+			/process has no PID/,
+		);
 	});
 
 	it('spawns claude with correct args and env', () => {
@@ -417,6 +429,23 @@ describe('killWorker', () => {
 		await killWorker(12345);
 
 		expect(killSpy).toHaveBeenCalledWith(12345, 'SIGTERM');
+	});
+
+	it('returns silently when process dies between liveness check and SIGTERM', async () => {
+		let checkCount = 0;
+		vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+			if (signal === 0) {
+				checkCount++;
+				if (checkCount === 1) return true; // alive on first check
+				throw new Error('ESRCH'); // dead on subsequent checks
+			}
+			if (signal === 'SIGTERM') {
+				throw new Error('ESRCH'); // died between check and signal
+			}
+			return true;
+		});
+
+		await expect(killWorker(12345)).resolves.toBeUndefined();
 	});
 
 	it('escalates to SIGKILL when SIGTERM does not work', async () => {

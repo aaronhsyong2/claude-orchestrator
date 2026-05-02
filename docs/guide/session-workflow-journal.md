@@ -72,6 +72,8 @@ Each entry logs:
 | 32 | "Execute with correct skill" | implementation/execute | /prp-implement — 3 files, 12 tests, all green. No deviations. | Cleanest implementation — no issues encountered |
 | 33 | "Feature complete?" | review/acceptance | All 9 acceptance criteria met | Same pattern as #6, #7 |
 | 34 | "Code review, verify, address, loop until clean" | review/auto-loop | 2 rounds: R1 2 HIGH (cwd validation, timeout), R2 APPROVE | Converged faster — simpler module, fewer findings |
+| 35 | "Commit with branch prefix and issue number" | commit | Committed 44899f0 — feat: Issue #8 | Same commit pattern |
+| 36 | "Push and create PR with detailed description, test steps, issue links" | pr/create | Pushed, created PR #21 with closes #6 #7 #8, full test plan, review history | Orchestrator should auto-generate PR body from commits + review artifacts |
 
 ---
 

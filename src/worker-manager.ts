@@ -133,7 +133,17 @@ export function spawnWorker(
 			const msg = parseNdjsonLine(line);
 			if (msg) {
 				onEvent('message', msg);
+			} else if (line.trim()) {
+				process.stderr.write(
+					`[worker-manager] unparseable NDJSON for ${groupSlug}/${issue}: ${line.slice(0, 120)}\n`,
+				);
 			}
+		});
+		rl.on('error', (err) => {
+			process.stderr.write(
+				`[worker-manager] readline error for ${groupSlug}/${issue}: ${err.message}\n`,
+			);
+			onEvent('error', err);
 		});
 	}
 
@@ -151,8 +161,13 @@ export function spawnWorker(
 	});
 
 	// Handle exit — use 'close' to ensure streams are flushed
-	proc.on('close', (code) => {
+	proc.on('close', (code, signal) => {
 		closeLog();
+		if (code === null && signal) {
+			process.stderr.write(
+				`[worker-manager] worker ${groupSlug}/${issue} terminated by signal ${signal}\n`,
+			);
+		}
 		onEvent('exited', code ?? 1);
 	});
 
