@@ -43,6 +43,23 @@ function makeStatus(overrides?: Partial<GroupStatus>): GroupStatus {
 const FIXED_TIME = '2026-05-02T16:00:00.000Z';
 const fixedClock = () => FIXED_TIME;
 
+describe('context issue validation', () => {
+	it('rejects path traversal in issue param', () => {
+		expect(() => writeContext('pr-1', '../../../etc', 'x', tmpDir)).toThrow(
+			/Invalid issue identifier/,
+		);
+	});
+
+	it('rejects empty issue param', () => {
+		expect(() => readContext('pr-1', '', tmpDir)).toThrow(/Invalid issue identifier/);
+	});
+
+	it('accepts valid issue identifiers', () => {
+		writeContext('pr-1', 'issue-10', 'content', tmpDir);
+		expect(readContext('pr-1', 'issue-10', tmpDir)).toBe('content');
+	});
+});
+
 describe('slug validation', () => {
 	it('rejects slugs with path traversal', () => {
 		expect(() => readGroupStatus('../../etc/passwd', tmpDir)).toThrow(/Invalid slug/);

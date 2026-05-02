@@ -1,14 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { GitBranchState, GroupStatus, GroupStep, ReconcileCorrection } from './types.js';
-
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
-
-function assertValidSlug(slug: string): void {
-	if (!SLUG_RE.test(slug)) {
-		throw new Error(`Invalid slug "${slug}" — must be lowercase alphanumeric with hyphens`);
-	}
-}
+import { assertValidSlug } from './validation.js';
 
 const VALID_STEPS: readonly GroupStep[] = [
 	'idle',
@@ -61,8 +54,11 @@ export function readGroupStatus(groupSlug: string, baseDir?: string): GroupStatu
 		}
 		process.stderr.write(`Warning: skipping malformed group status file ${groupSlug}.json\n`);
 		return null;
-	} catch {
-		process.stderr.write(`Warning: skipping invalid group status file ${groupSlug}.json\n`);
+	} catch (err: unknown) {
+		const message = err instanceof Error ? err.message : String(err);
+		process.stderr.write(
+			`Warning: skipping invalid group status file ${groupSlug}.json — ${message}\n`,
+		);
 		return null;
 	}
 }
@@ -87,6 +83,7 @@ export function writeContext(
 	baseDir?: string,
 ): void {
 	assertValidSlug(groupSlug);
+	assertValidIssueParam(issue);
 	const contextDir = getContextDir(groupSlug, baseDir);
 	fs.mkdirSync(contextDir, { recursive: true });
 	fs.writeFileSync(path.join(contextDir, `${issue}.md`), content);
@@ -94,6 +91,7 @@ export function writeContext(
 
 export function readContext(groupSlug: string, issue: string, baseDir?: string): string | null {
 	assertValidSlug(groupSlug);
+	assertValidIssueParam(issue);
 	const filePath = path.join(getContextDir(groupSlug, baseDir), `${issue}.md`);
 
 	if (!fs.existsSync(filePath)) {
@@ -105,6 +103,7 @@ export function readContext(groupSlug: string, issue: string, baseDir?: string):
 
 export function deleteContext(groupSlug: string, issue: string, baseDir?: string): void {
 	assertValidSlug(groupSlug);
+	assertValidIssueParam(issue);
 	const filePath = path.join(getContextDir(groupSlug, baseDir), `${issue}.md`);
 
 	try {
@@ -113,6 +112,18 @@ export function deleteContext(groupSlug: string, issue: string, baseDir?: string
 		if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
 			throw err;
 		}
+	}
+}
+
+// Context issue params use a different format than worker-manager issues (e.g. "issue-10")
+// so we validate they contain no path traversal characters rather than requiring pure digits.
+const CONTEXT_ISSUE_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+function assertValidIssueParam(issue: string): void {
+	if (!CONTEXT_ISSUE_RE.test(issue)) {
+		throw new Error(
+			`Invalid issue identifier "${issue}" — must be lowercase alphanumeric with hyphens`,
+		);
 	}
 }
 
@@ -134,40 +145,43 @@ export function reconcile(
 	const branchSet = new Set(gitState.branches);
 
 	for (const file of files) {
+		let parsed: GroupStatus;
 		try {
 			const content = fs.readFileSync(path.join(statusDir, file), 'utf-8');
-			const parsed: unknown = JSON.parse(content);
-			if (!isValidGroupStatus(parsed)) continue;
-
-			const slug = file.replace(/\.json$/, '');
-
-			if (!branchSet.has(parsed.branch)) {
-				const corrected: GroupStatus = {
-					...parsed,
-					step: 'idle',
-					current_issue: null,
-					step_result: '',
-					last_updated: now(),
-				};
-				writeGroupStatus(slug, corrected, baseDir);
-				corrections.push({ slug, reason: `branch "${parsed.branch}" no longer exists` });
-				continue;
-			}
-
-			const hasCommits = gitState.branchHasCommits.get(parsed.branch);
-			if (hasCommits === false && parsed.step !== 'idle') {
-				const corrected: GroupStatus = {
-					...parsed,
-					step: 'idle',
-					current_issue: null,
-					step_result: '',
-					last_updated: now(),
-				};
-				writeGroupStatus(slug, corrected, baseDir);
-				corrections.push({ slug, reason: `branch "${parsed.branch}" has no commits` });
-			}
+			const raw: unknown = JSON.parse(content);
+			if (!isValidGroupStatus(raw)) continue;
+			parsed = raw;
 		} catch {
-			// Skip unreadable files
+			// Skip unreadable/unparseable files — not actionable
+			continue;
+		}
+
+		const slug = file.replace(/\.json$/, '');
+
+		if (!branchSet.has(parsed.branch)) {
+			const corrected: GroupStatus = {
+				...parsed,
+				step: 'idle',
+				current_issue: null,
+				step_result: '',
+				last_updated: now(),
+			};
+			writeGroupStatus(slug, corrected, baseDir);
+			corrections.push({ slug, reason: `branch "${parsed.branch}" no longer exists` });
+			continue;
+		}
+
+		const hasCommits = gitState.branchHasCommits.get(parsed.branch);
+		if (hasCommits === false && parsed.step !== 'idle') {
+			const corrected: GroupStatus = {
+				...parsed,
+				step: 'idle',
+				current_issue: null,
+				step_result: '',
+				last_updated: now(),
+			};
+			writeGroupStatus(slug, corrected, baseDir);
+			corrections.push({ slug, reason: `branch "${parsed.branch}" has no commits` });
 		}
 	}
 

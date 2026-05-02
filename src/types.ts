@@ -3,6 +3,22 @@ export interface VerifyCommand {
 	readonly command: string;
 }
 
+export interface StepResult {
+	readonly name: string;
+	readonly command: string;
+	readonly exitCode: number;
+	readonly duration: number;
+	readonly stdout: string;
+	readonly stderr: string;
+}
+
+export interface VerifyResult {
+	readonly success: boolean;
+	readonly failedStep?: string;
+	readonly error?: string;
+	readonly steps: readonly StepResult[];
+}
+
 export type IssueSourceType = 'github' | 'linear' | 'jira';
 
 export interface IssueSource {
@@ -87,4 +103,39 @@ export interface GitBranchState {
 export interface ReconcileCorrection {
 	readonly slug: string;
 	readonly reason: string;
+}
+
+export interface WorktreeInfo {
+	readonly branch: string;
+	readonly worktreePath: string;
+}
+
+// --- Worker Manager types ---
+
+export interface NdjsonSystemMessage {
+	readonly type: 'system';
+	readonly subtype: string;
+	readonly session_id: string;
+}
+
+export interface NdjsonAssistantMessage {
+	readonly type: 'assistant';
+	readonly message: unknown;
+}
+
+export interface NdjsonResultMessage {
+	readonly type: 'result';
+	readonly result: string;
+	readonly is_error: boolean;
+}
+
+export type NdjsonMessage = NdjsonSystemMessage | NdjsonAssistantMessage | NdjsonResultMessage;
+
+export type WorkerEventType = 'spawned' | 'message' | 'error' | 'exited';
+
+export interface WorkerHandle {
+	readonly id: string;
+	readonly issue: string;
+	readonly groupSlug: string;
+	readonly pid: number;
 }
