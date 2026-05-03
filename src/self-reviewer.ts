@@ -67,7 +67,7 @@ export function buildFixPrompt(findings: readonly Finding[]): string {
 export function parseFindings(output: string): readonly Finding[] {
 	// Find all candidate JSON array blocks and return first that parses successfully.
 	// Uses a non-greedy match to avoid spanning across multiple arrays.
-	const candidates: string[] = [...(output.match(/\[[^\[]*?\]/g) ?? [])];
+	const candidates: string[] = [...(output.match(/\[[^[]*?\]/g) ?? [])];
 
 	// Also try a greedy match for multi-object arrays (contains nested objects but no nested arrays)
 	const greedyMatch = output.match(/\[\s*\{[\s\S]*?\}\s*\]/);

@@ -80,7 +80,15 @@ export interface StatusEntry {
 	readonly issues_done: number;
 }
 
-export type GroupStep = 'idle' | 'cloning' | 'coding' | 'verifying' | 'reviewing';
+export type GroupStep =
+	| 'idle'
+	| 'cloning'
+	| 'coding'
+	| 'verifying'
+	| 'reviewing'
+	| 'pr-creating'
+	| 'pr-reviewing'
+	| 'awaiting-merge';
 
 export interface GroupStatus {
 	readonly pr_group: string;
@@ -127,6 +135,7 @@ export interface SchedulerDeps {
 	readonly readContext: (groupSlug: string, issue: string) => string | null;
 	readonly writeContext: (groupSlug: string, issue: string, content: string) => void;
 	readonly deleteContext: (groupSlug: string, issue: string) => void;
+	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
 	readonly notify: (message: string, config: NotificationConfig) => Promise<void>;
 }
 
@@ -207,4 +216,52 @@ export interface WorkerHandle {
 	readonly issue: string;
 	readonly groupSlug: string;
 	readonly pid: number;
+}
+
+// --- Exec command types ---
+
+export interface ExecResult {
+	readonly exitCode: number;
+	readonly stdout: string;
+	readonly stderr: string;
+}
+
+// --- PR Review types ---
+
+export interface PRComment {
+	readonly file: string;
+	readonly line: number | null;
+	readonly body: string;
+	readonly severity: FindingSeverity;
+}
+
+export interface PRReviewResult {
+	readonly comments: readonly PRComment[];
+	readonly approved: boolean;
+	readonly cycle: number;
+}
+
+export interface PRReviewDeps {
+	readonly spawnWorker: SelfReviewDeps['spawnWorker'];
+	readonly verify: SelfReviewDeps['verify'];
+	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
+	readonly readContext: (groupSlug: string, issue: string) => string | null;
+	readonly writeContext: (groupSlug: string, issue: string, content: string) => void;
+	readonly writeGroupStatus: (groupSlug: string, data: GroupStatus) => void;
+	readonly notify: (message: string, config: NotificationConfig) => Promise<void>;
+	readonly now?: () => string;
+}
+
+// --- Merge Detector types ---
+
+export type MergeDetectorState = 'GITHUB_POLLING' | 'GIT_FALLBACK';
+
+export interface MergeDetectorDeps {
+	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
+	readonly removeWorktree: (branch: string) => void;
+	readonly now?: () => string;
+}
+
+export interface MergeDetectorHandle {
+	readonly stop: () => void;
 }

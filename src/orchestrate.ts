@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { loadConfig as realLoadConfig } from './config.js';
 import { parsePlan as realParsePlan } from './parser.js';
 import { assignWork, getReadyGroups } from './scheduler.js';
@@ -11,6 +13,7 @@ import {
 import { notify as realNotify } from './tui/notification-service.js';
 import type {
 	AssignWorkResult,
+	ExecResult,
 	GroupStatus,
 	OrchestratorConfig,
 	PlanData,
@@ -49,6 +52,23 @@ export async function orchestrate(
 	return assignWork(plan, mergedPRs, config, deps);
 }
 
+const execFileAsync = promisify(execFile);
+
+async function realExecCommand(
+	cmd: string,
+	args: readonly string[],
+	cwd: string,
+): Promise<ExecResult> {
+	try {
+		const { stdout, stderr } = await execFileAsync(cmd, [...args], { cwd });
+		return { exitCode: 0, stdout, stderr };
+	} catch (err: unknown) {
+		const e = err as { status?: number; code?: string | number; stdout?: string; stderr?: string };
+		const exitCode = e.status ?? (typeof e.code === 'number' ? e.code : 1);
+		return { exitCode, stdout: e.stdout ?? '', stderr: e.stderr ?? '' };
+	}
+}
+
 function buildRealDeps(): SchedulerDeps {
 	return {
 		createWorktree: (branch, baseBranch) => realCreate(branch, baseBranch),
@@ -62,6 +82,7 @@ function buildRealDeps(): SchedulerDeps {
 		readContext: realReadContext,
 		writeContext: realWriteContext,
 		deleteContext: realDeleteContext,
+		execCommand: realExecCommand,
 		notify: realNotify,
 	};
 }
@@ -95,6 +116,18 @@ function emitProgress(onProgress: ProgressCallback, data: GroupStatus): void {
 	}
 
 	if (data.step === 'reviewing') {
-		onProgress(`PR group ready for review: ${data.pr_group}`);
+		onProgress(`  PR group ${data.pr_group}: reviewing...`);
+	}
+
+	if (data.step === 'pr-creating') {
+		onProgress(`  PR group ${data.pr_group}: creating PR...`);
+	}
+
+	if (data.step === 'pr-reviewing') {
+		onProgress(`  PR group ${data.pr_group}: PR review — ${data.step_result}`);
+	}
+
+	if (data.step === 'awaiting-merge') {
+		onProgress(`  PR group ${data.pr_group}: awaiting merge`);
 	}
 }

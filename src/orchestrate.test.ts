@@ -92,6 +92,18 @@ function buildMockDeps(
 		readContext: vi.fn().mockReturnValue(null),
 		writeContext: vi.fn(),
 		deleteContext: vi.fn(),
+		execCommand: vi.fn().mockImplementation(async (cmd: string, args: readonly string[]) => {
+			if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('number,url')) {
+				return { exitCode: 1, stdout: '', stderr: 'no PR found' };
+			}
+			if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'create') {
+				return { exitCode: 0, stdout: 'https://github.com/org/repo/pull/1\n', stderr: '' };
+			}
+			if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('state')) {
+				return { exitCode: 0, stdout: '{"state":"MERGED"}', stderr: '' };
+			}
+			return { exitCode: 0, stdout: '', stderr: '' };
+		}),
 		notify: vi.fn().mockResolvedValue(undefined),
 	};
 }
@@ -117,7 +129,7 @@ describe('orchestrate', () => {
 		expect(progress).toContain('  Issue #30: implementing...');
 		expect(progress).toContain('  Issue #30: verifying...');
 		expect(progress).toContain('  Issue #30: done');
-		expect(progress).toContain('PR group ready for review: feat-type-cleanup');
+		expect(progress).toContain('  PR group feat-type-cleanup: reviewing...');
 	});
 
 	it('processes multiple issues serially in one group', async () => {
@@ -153,7 +165,7 @@ describe('orchestrate', () => {
 		const idx31impl = progress.indexOf('  Issue #31: implementing...');
 		expect(idx30done).toBeLessThan(idx31impl);
 
-		expect(progress).toContain('PR group ready for review: feat-type-cleanup');
+		expect(progress).toContain('  PR group feat-type-cleanup: reviewing...');
 	});
 
 	it('completes with empty plan (no groups)', async () => {
@@ -289,10 +301,9 @@ describe('orchestrate', () => {
 		const calls = (deps.writeGroupStatus as ReturnType<typeof vi.fn>).mock.calls;
 		expect(calls.length).toBeGreaterThanOrEqual(5);
 
-		// Final status is reviewing with self-review passed
+		// Final status is awaiting-merge with PR approved (merge detector resolves immediately)
 		const finalStatus = statusStore.read('feat-type-cleanup');
-		expect(finalStatus?.step).toBe('reviewing');
-		expect(finalStatus?.step_result).toBe('self-review passed');
+		expect(finalStatus?.step).toBe('awaiting-merge');
 	});
 
 	it('spawns worker with correct issue number', async () => {

@@ -1,3 +1,6 @@
+import { startMergeDetector } from './merge-detector.js';
+import { buildPRBody, pushAndCreatePR } from './pr-creator.js';
+import { prReview } from './pr-reviewer.js';
 import { executeWithRetry } from './retry-coordinator.js';
 import { selfReview } from './self-reviewer.js';
 import { deriveSlug } from './slug.js';
@@ -244,13 +247,105 @@ async function processGroup(
 
 		safeWriteStatus(deps, slug, {
 			...freshStatus(slug, group, deps, now),
-			step: 'reviewing',
-			step_result: 'self-review passed',
+			step: 'pr-creating',
+			step_result: 'pushing branch',
 			last_updated: now(),
 		});
 
-		return { completed: true };
-	} finally {
+		// --- PR Creation ---
+		let prNumber: number;
+		try {
+			const issuesCompleted = freshStatus(slug, group, deps, now).issues_completed;
+			const prResult = await pushAndCreatePR(
+				group.branch,
+				config.base_branch,
+				group.title,
+				buildPRBody(group.title, issuesCompleted),
+				reviewWorktree.worktreePath,
+				{ execCommand: deps.execCommand },
+			);
+			prNumber = prResult.prNumber;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			safeWriteStatus(deps, slug, {
+				...freshStatus(slug, group, deps, now),
+				step: 'pr-creating',
+				step_result: `failed: ${message}`,
+				last_updated: now(),
+			});
+			return { completed: false, error: `pr creation failed: ${message}` };
+		}
+
+		safeWriteStatus(deps, slug, {
+			...freshStatus(slug, group, deps, now),
+			step: 'pr-reviewing',
+			step_result: `PR #${prNumber} created`,
+			last_updated: now(),
+		});
+
+		// --- PR Review Loop ---
+		const prReviewResult = await prReview(
+			prNumber,
+			slug,
+			reviewWorktree.worktreePath,
+			freshStatus(slug, group, deps, now),
+			config,
+			{
+				spawnWorker: deps.spawnWorker,
+				verify: deps.verify,
+				execCommand: deps.execCommand,
+				readContext: deps.readContext,
+				writeContext: deps.writeContext,
+				writeGroupStatus: deps.writeGroupStatus,
+				notify: deps.notify,
+			},
+		);
+
+		if (!prReviewResult.approved) {
+			safeWriteStatus(deps, slug, {
+				...freshStatus(slug, group, deps, now),
+				step: 'idle',
+				step_result: 'needs-input',
+				last_updated: now(),
+			});
+			void deps.notify(
+				`${slug}: PR #${prNumber} has unresolved comments after ${prReviewResult.cycle} cycle(s)`,
+				config.notifications,
+			);
+			return { completed: false, error: 'pr-review: unresolved comments' };
+		}
+
+		// PR approved — notify user
+		void deps.notify(`${slug}: PR #${prNumber} ready to merge`, config.notifications);
+
+		safeWriteStatus(deps, slug, {
+			...freshStatus(slug, group, deps, now),
+			step: 'awaiting-merge',
+			step_result: `PR #${prNumber} approved`,
+			last_updated: now(),
+		});
+
+		// --- Merge Detection ---
+		const mergeDetectorHandle = await new Promise<ReturnType<typeof startMergeDetector>>(
+			(resolveHandle) => {
+				let resolved = false;
+				const handle = startMergeDetector(
+					prNumber,
+					group.branch,
+					reviewWorktree.worktreePath,
+					() => {
+						if (!resolved) {
+							resolved = true;
+							resolveHandle(handle);
+						}
+					},
+					{ execCommand: deps.execCommand, removeWorktree: deps.removeWorktree },
+				);
+			},
+		);
+		mergeDetectorHandle.stop();
+
+		// Merge detected — cleanup worktree
 		try {
 			deps.removeWorktree(group.branch);
 		} catch (err) {
@@ -259,6 +354,19 @@ async function processGroup(
 				`[scheduler] review worktree cleanup failed for ${group.branch}: ${message}\n`,
 			);
 		}
+
+		return { completed: true };
+	} catch (err) {
+		// Unexpected error during PR lifecycle — cleanup worktree
+		try {
+			deps.removeWorktree(group.branch);
+		} catch (cleanupErr) {
+			const message = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+			process.stderr.write(
+				`[scheduler] review worktree cleanup failed for ${group.branch}: ${message}\n`,
+			);
+		}
+		throw err;
 	}
 }
 

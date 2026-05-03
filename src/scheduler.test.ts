@@ -69,6 +69,29 @@ function createMockDeps(overrides?: Partial<SchedulerDeps>): SchedulerDeps {
 		readContext: vi.fn(() => null),
 		writeContext: vi.fn(),
 		deleteContext: vi.fn(),
+		execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+			// gh pr view <branch> --json number,url → no existing PR
+			if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('number,url')) {
+				return { exitCode: 1, stdout: '', stderr: 'no PR found' };
+			}
+			// gh pr create → success
+			if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'create') {
+				return { exitCode: 0, stdout: 'https://github.com/org/repo/pull/1\n', stderr: '' };
+			}
+			// gh pr view <number> --json state → merged (for merge detector)
+			if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('state')) {
+				return { exitCode: 0, stdout: '{"state":"MERGED"}', stderr: '' };
+			}
+			// git push
+			if (cmd === 'git' && args[0] === 'push') {
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}
+			// git commit
+			if (cmd === 'git' && args[0] === 'commit') {
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}
+			return { exitCode: 0, stdout: '', stderr: '' };
+		}),
 		notify: vi.fn(async () => {}),
 		...overrides,
 	};
@@ -241,8 +264,7 @@ describe('assignWork', () => {
 
 		const writeStatusMock = vi.mocked(deps.writeGroupStatus);
 		const lastCall = writeStatusMock.mock.calls[writeStatusMock.mock.calls.length - 1];
-		expect(lastCall?.[1].step).toBe('reviewing');
-		expect(lastCall?.[1].step_result).toBe('self-review passed');
+		expect(lastCall?.[1].step).toBe('awaiting-merge');
 	});
 
 	it('respects max_concurrent_agents cap', async () => {
@@ -300,6 +322,7 @@ describe('assignWork', () => {
 		const steps = writeStatusMock.mock.calls.map((call) => call[1].step);
 		// init(idle) → cloning → coding → verifying → idle(pass)
 		// → reviewing(self-review starting) → reviewing(review cycle 1) → reviewing(self-review passed)
+		// → pr-creating → pr-reviewing → pr-reviewing(PR review cycle 1) → awaiting-merge
 		expect(steps).toEqual([
 			'idle',
 			'cloning',
@@ -308,7 +331,10 @@ describe('assignWork', () => {
 			'idle',
 			'reviewing',
 			'reviewing',
-			'reviewing',
+			'pr-creating',
+			'pr-reviewing',
+			'pr-reviewing',
+			'awaiting-merge',
 		]);
 	});
 
@@ -524,8 +550,8 @@ describe('assignWork', () => {
 		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
 
 		expect(result.results[0]?.completed).toBe(true);
-		// spawnWorker is called once for the self-review phase (no issue spawns)
-		expect(deps.spawnWorker).toHaveBeenCalledTimes(1);
+		// spawnWorker is called for self-review + PR review (no issue spawns)
+		expect(deps.spawnWorker).toHaveBeenCalledTimes(2);
 	});
 });
 
