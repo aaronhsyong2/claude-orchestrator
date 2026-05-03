@@ -5,6 +5,8 @@
 - [Claude Orchestrator PRD v2](guide/claude-orchestrator-prd-v2.md) — Autonomous agent TUI dashboard with all design decisions incorporated
 - [Claude Orchestrator PR Plan](guide/claude-orchestrator-pr-plan.md) — 7 PR groups with dependency ordering for orchestrated execution
 - [Session Workflow Journal](guide/session-workflow-journal.md) — Raw input tracking across PR lifecycle to inform orchestrator design
+- [Upstream Pipeline PRD](guide/upstream-pipeline-prd.md) — Extend orchestrator with epic discovery, approval gates, and pre-implementation pipeline
+- [Upstream Pipeline PR Plan](guide/upstream-pipeline-pr-plan.md) — 5 PR groups for epic pipeline extension
 
 ## Decisions
 - [ADR 001: Core Design Decisions](decisions/001-design-decisions.md) — 26 locked design decisions from grill-me session

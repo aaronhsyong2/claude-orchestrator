@@ -1,0 +1,40 @@
+{
+	"base_branch": "main",
+	"max_concurrent_agents": 3,
+	"max_retries_on_fail": 2,
+	"max_review_cycles": 3,
+	"verify": [
+		{
+			"name": "lint",
+			"command": "pnpm run check"
+		},
+		{
+			"name": "typecheck",
+			"command": "pnpm run typecheck"
+		},
+		{
+			"name": "build",
+			"command": "pnpm run build"
+		},
+		{
+			"name": "test",
+			"command": "pnpm run test -- --run"
+		},
+		{
+			"name": "e2e",
+			"command": "pnpm run test:e2e"
+		}
+	],
+	"rule_files": [
+		"CLAUDE.md",
+		".claude/rules/**/*.md",
+		"docs/decisions/*.md"
+	],
+	"issue_source": {
+		"type": "github",
+		"repo": "org/repo-name"
+	},
+	"notifications": {
+		"system": true
+	}
+}
