@@ -5,7 +5,7 @@ tags:
   - pr-grouping
   - orchestrator
 created: 2026-05-02
-updated: 2026-05-03
+updated: 2026-05-04
 status: active
 related:
   - "[Parent Epic: #1](https://github.com/aaronhsyong2/claude-orchestrator/issues/1)"
@@ -83,13 +83,14 @@ Logical grouping of issues from the Claude Orchestrator epic (#1) into PRs, orde
 ## PR 6: Resilience
 
 **Branch:** `feat/resilience`
-**Status:** pending
+**Status:** merged (PR #24)
+**Review:** [6 rounds, all critical/high issues resolved](../reviews/pr-024-resilience.md)
 
 | Issue | Title                                                         | Status |
 | ----- | ------------------------------------------------------------- | ------ |
-| #15   | Retry + error escalation: fresh spawn retry with context file | Open   |
-| #16   | Self-review cycle: severity-gated review with fix loop        | Open   |
-| #17   | PR review + comment fixing + merge detection                  | Open   |
+| #15   | Retry + error escalation: fresh spawn retry with context file | Closed |
+| #16   | Self-review cycle: severity-gated review with fix loop        | Closed |
+| #17   | PR review + comment fixing + merge detection                  | Closed |
 
 > Depends on: PR 3, PR 5
 
