@@ -49,7 +49,14 @@ function createMockDeps(overrides?: Partial<SchedulerDeps>): SchedulerDeps {
 		removeWorktree: vi.fn(),
 		spawnWorker: vi.fn(
 			(_issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
-				process.nextTick(() => onEvent({ event: 'exited', data: 0 }));
+				process.nextTick(() => {
+					// Emit a result message so self-reviewer can capture output
+					onEvent({
+						event: 'message',
+						data: { type: 'result', result: '[]', is_error: false },
+					});
+					onEvent({ event: 'exited', data: 0 });
+				});
 				return { id: 'test-1', issue: '1', groupSlug: 'test', pid: 123 } satisfies WorkerHandle;
 			},
 		),
@@ -162,7 +169,13 @@ describe('assignWork', () => {
 			spawnWorker: vi.fn(
 				(issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
 					spawnOrder.push(issue);
-					process.nextTick(() => onEvent({ event: 'exited', data: 0 }));
+					process.nextTick(() => {
+						onEvent({
+							event: 'message',
+							data: { type: 'result', result: '[]', is_error: false },
+						});
+						onEvent({ event: 'exited', data: 0 });
+					});
 					return { id: `test-${issue}`, issue, groupSlug: 'feat-multi', pid: 123 };
 				},
 			),
@@ -171,7 +184,8 @@ describe('assignWork', () => {
 		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
 
 		expect(result.results[0]?.completed).toBe(true);
-		expect(spawnOrder).toEqual(['10', '11', '12']);
+		// Issues 10, 11, 12 processed in order, then review-feat-multi for self-review
+		expect(spawnOrder.slice(0, 3)).toEqual(['10', '11', '12']);
 	});
 
 	it('stops on worker failure', async () => {
@@ -228,7 +242,7 @@ describe('assignWork', () => {
 		const writeStatusMock = vi.mocked(deps.writeGroupStatus);
 		const lastCall = writeStatusMock.mock.calls[writeStatusMock.mock.calls.length - 1];
 		expect(lastCall?.[1].step).toBe('reviewing');
-		expect(lastCall?.[1].step_result).toBe('ready for self-review');
+		expect(lastCall?.[1].step_result).toBe('self-review passed');
 	});
 
 	it('respects max_concurrent_agents cap', async () => {
@@ -284,8 +298,18 @@ describe('assignWork', () => {
 
 		const writeStatusMock = vi.mocked(deps.writeGroupStatus);
 		const steps = writeStatusMock.mock.calls.map((call) => call[1].step);
-		// init(idle) → cloning → coding → verifying → idle(pass) → reviewing
-		expect(steps).toEqual(['idle', 'cloning', 'coding', 'verifying', 'idle', 'reviewing']);
+		// init(idle) → cloning → coding → verifying → idle(pass)
+		// → reviewing(self-review starting) → reviewing(review cycle 1) → reviewing(self-review passed)
+		expect(steps).toEqual([
+			'idle',
+			'cloning',
+			'coding',
+			'verifying',
+			'idle',
+			'reviewing',
+			'reviewing',
+			'reviewing',
+		]);
 	});
 
 	it('passes context from previous attempt to worker', async () => {
@@ -417,7 +441,13 @@ describe('assignWork', () => {
 			spawnWorker: vi.fn(
 				(issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
 					spawnOrder.push(issue);
-					process.nextTick(() => onEvent({ event: 'exited', data: 0 }));
+					process.nextTick(() => {
+						onEvent({
+							event: 'message',
+							data: { type: 'result', result: '[]', is_error: false },
+						});
+						onEvent({ event: 'exited', data: 0 });
+					});
 					return { id: `test-${issue}`, issue, groupSlug: 'feat-resume', pid: 123 };
 				},
 			),
@@ -427,7 +457,8 @@ describe('assignWork', () => {
 
 		expect(result.results[0]?.completed).toBe(true);
 		// Only issues 11 and 12 should be processed — issue 10 was already done
-		expect(spawnOrder).toEqual(['11', '12']);
+		// Then review-feat-resume for self-review
+		expect(spawnOrder.slice(0, 2)).toEqual(['11', '12']);
 	});
 
 	it('detects slug collision and throws', async () => {
@@ -493,7 +524,8 @@ describe('assignWork', () => {
 		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
 
 		expect(result.results[0]?.completed).toBe(true);
-		expect(deps.spawnWorker).not.toHaveBeenCalled();
+		// spawnWorker is called once for the self-review phase (no issue spawns)
+		expect(deps.spawnWorker).toHaveBeenCalledTimes(1);
 	});
 });
 

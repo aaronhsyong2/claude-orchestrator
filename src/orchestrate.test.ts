@@ -67,7 +67,14 @@ function buildMockDeps(
 			.mockImplementation(
 				(_issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
 					process.nextTick(() => onEvent({ event: 'spawned' }));
-					process.nextTick(() => onEvent({ event: 'exited', data: workerExitCode }));
+					process.nextTick(() => {
+						// Emit result message so self-reviewer can capture output
+						onEvent({
+							event: 'message',
+							data: { type: 'result', result: '[]', is_error: false },
+						});
+						onEvent({ event: 'exited', data: workerExitCode });
+					});
 					return { id: `mock-${_issue}`, issue: _issue, groupSlug: _slug, pid: 999 };
 				},
 			),
@@ -277,14 +284,15 @@ describe('orchestrate', () => {
 			deps,
 		});
 
-		// writeGroupStatus called multiple times (cloning, coding, verifying, idle, reviewing)
+		// writeGroupStatus called multiple times (cloning, coding, verifying, idle, reviewing phases)
 		expect(deps.writeGroupStatus).toHaveBeenCalled();
 		const calls = (deps.writeGroupStatus as ReturnType<typeof vi.fn>).mock.calls;
 		expect(calls.length).toBeGreaterThanOrEqual(5);
 
-		// Final status is reviewing
+		// Final status is reviewing with self-review passed
 		const finalStatus = statusStore.read('feat-type-cleanup');
 		expect(finalStatus?.step).toBe('reviewing');
+		expect(finalStatus?.step_result).toBe('self-review passed');
 	});
 
 	it('spawns worker with correct issue number', async () => {

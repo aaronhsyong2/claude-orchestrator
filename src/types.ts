@@ -170,6 +170,38 @@ export type WorkerEvent =
 	| { readonly event: 'error'; readonly data: Error }
 	| { readonly event: 'exited'; readonly data: number };
 
+// --- Self-review types ---
+
+export type FindingSeverity = 'critical' | 'high' | 'medium' | 'low';
+
+export interface Finding {
+	readonly severity: FindingSeverity;
+	readonly file: string;
+	readonly description: string;
+}
+
+export interface ReviewResult {
+	readonly findings: readonly Finding[];
+	readonly approved: boolean;
+	readonly cycle: number;
+}
+
+export interface SelfReviewDeps {
+	readonly spawnWorker: (
+		issue: string,
+		groupSlug: string,
+		worktreePath: string,
+		onEvent: (event: WorkerEvent) => void,
+		contextContent?: string,
+	) => WorkerHandle;
+	readonly verify: (cwd: string, commands: readonly VerifyCommand[]) => Promise<VerifyResult>;
+	readonly readContext: (groupSlug: string, issue: string) => string | null;
+	readonly writeContext: (groupSlug: string, issue: string, content: string) => void;
+	readonly writeGroupStatus: (groupSlug: string, data: GroupStatus) => void;
+	readonly notify: (message: string, config: NotificationConfig) => Promise<void>;
+	readonly now?: () => string;
+}
+
 export interface WorkerHandle {
 	readonly id: string;
 	readonly issue: string;

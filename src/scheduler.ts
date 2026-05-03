@@ -1,4 +1,5 @@
 import { executeWithRetry } from './retry-coordinator.js';
+import { selfReview } from './self-reviewer.js';
 import { deriveSlug } from './slug.js';
 import type {
 	AssignWorkResult,
@@ -185,16 +186,80 @@ async function processGroup(
 		}
 	}
 
-	// All issues complete — signal ready for review
-	const finalStatus = freshStatus(slug, group, deps, now);
+	// All issues complete — run self-review cycle
 	safeWriteStatus(deps, slug, {
-		...finalStatus,
+		...freshStatus(slug, group, deps, now),
 		step: 'reviewing',
-		step_result: 'ready for self-review',
+		step_result: 'self-review starting',
 		last_updated: now(),
 	});
 
-	return { completed: true };
+	// Create worktree for review phase (branch already has all committed work)
+	let reviewWorktree: WorktreeInfo;
+	try {
+		reviewWorktree = deps.createWorktree(group.branch, config.base_branch);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		safeWriteStatus(deps, slug, {
+			...freshStatus(slug, group, deps, now),
+			step: 'reviewing',
+			step_result: `worktree error: ${message}`,
+			last_updated: now(),
+		});
+		return { completed: false, error: `review worktree error: ${message}` };
+	}
+
+	try {
+		const reviewResult = await selfReview(
+			slug,
+			reviewWorktree.worktreePath,
+			freshStatus(slug, group, deps, now),
+			config,
+			{
+				spawnWorker: deps.spawnWorker,
+				verify: deps.verify,
+				readContext: deps.readContext,
+				writeContext: deps.writeContext,
+				writeGroupStatus: deps.writeGroupStatus,
+				notify: deps.notify,
+			},
+		);
+
+		if (!reviewResult.approved) {
+			safeWriteStatus(deps, slug, {
+				...freshStatus(slug, group, deps, now),
+				step: 'idle',
+				step_result: 'needs-input',
+				last_updated: now(),
+			});
+			void deps.notify(
+				`${slug}: self-review found unresolved critical/high findings after ${reviewResult.cycle} cycle(s)`,
+				config.notifications,
+			);
+			return {
+				completed: false,
+				error: 'self-review: unresolved critical/high findings',
+			};
+		}
+
+		safeWriteStatus(deps, slug, {
+			...freshStatus(slug, group, deps, now),
+			step: 'reviewing',
+			step_result: 'self-review passed',
+			last_updated: now(),
+		});
+
+		return { completed: true };
+	} finally {
+		try {
+			deps.removeWorktree(group.branch);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			process.stderr.write(
+				`[scheduler] review worktree cleanup failed for ${group.branch}: ${message}\n`,
+			);
+		}
+	}
 }
 
 export async function assignWork(
