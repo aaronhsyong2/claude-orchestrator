@@ -8,7 +8,7 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const TIMEOUT_EXIT_CODE = 124;
 
 /** Only allow safe characters in verify commands to prevent injection via compromised config. */
-const SAFE_COMMAND_RE = /^[a-zA-Z0-9 _\-./=,@]+$/;
+const SAFE_COMMAND_RE = /^[a-zA-Z0-9 _\-./=,@:]+$/;
 
 /** Executables that delegate to a shell — block these as the first token in verify commands. */
 const SHELL_EXECUTABLES = new Set([

@@ -170,7 +170,14 @@ async function processIssue(
 			issues_remaining: updatedStatus.issues_remaining.filter((n) => n !== issueNumber),
 			last_updated: now(),
 		});
-		deps.deleteContext(slug, String(issueNumber));
+		try {
+			deps.deleteContext(slug, String(issueNumber));
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			process.stderr.write(
+				`[scheduler] context delete failed for ${slug}/${issueNumber}: ${message}\n`,
+			);
+		}
 
 		return { success: true };
 	} finally {

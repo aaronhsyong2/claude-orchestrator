@@ -62,8 +62,11 @@ export function create(branch: string, baseBranch?: string, baseDir?: string): W
 			cwd: repoDir,
 			stdio: 'pipe',
 		});
-	} catch {
-		throw new Error(`Base branch "${resolvedBase}" does not exist`);
+	} catch (err) {
+		const detail = getGitErrorMessage(err);
+		throw new Error(
+			`Base branch "${resolvedBase}" does not exist or could not be verified: ${detail}`,
+		);
 	}
 
 	try {

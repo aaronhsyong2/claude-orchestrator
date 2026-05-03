@@ -271,7 +271,7 @@ describe('create', () => {
 		});
 
 		expect(() => create('feat/new', 'nonexistent', tmpDir)).toThrow(
-			'Base branch "nonexistent" does not exist',
+			/Base branch "nonexistent" does not exist/,
 		);
 	});
 

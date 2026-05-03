@@ -17,13 +17,13 @@ related:
 # PR #22 Review — Scheduler + E2E Integration
 
 **PR:** `feat/scheduler` → `main`
-**Commits:** `88cb805` (Issue #9), `51efe9d` (Issue #10), `7edd10b` (fix: round 1), pending (fix: round 2)
-**Reviewers:** 6 automated agents × 2 rounds (code-reviewer, silent-failure-hunter, type-design-analyzer, pr-test-analyzer, comment-analyzer, code-simplifier)
+**Commits:** `88cb805` (Issue #9), `51efe9d` (Issue #10), `7edd10b` (fix: round 1), `6b5a45b` (fix: round 2), pending (fix: round 3)
+**Reviewers:** 6 automated agents × 3 rounds
 **Date:** 2026-05-03
 
 ## Verdict: PASS
 
-All CRITICAL, HIGH, and IMPORTANT issues resolved across two review rounds. Remaining items are ADVISORY-level suggestions for future work.
+All CRITICAL, HIGH, and IMPORTANT issues resolved across three review rounds. Remaining items are ADVISORY-level.
 
 ---
 
@@ -58,6 +58,14 @@ All CRITICAL, HIGH, and IMPORTANT issues resolved across two review rounds. Rema
 | I10 | `'merging'` dead state in `GroupStep` | Removed from type and validator |
 | I11 | `blocked`/`needs_input` always false | Removed from `GroupStatus`, `initGroupStatus`, and validator |
 
+## Round 3 — 1 CRITICAL, 2 IMPORTANT → All Resolved
+
+| # | Issue | Resolution |
+|---|-------|-----------|
+| C1 | Default config `pnpm run test:e2e` `:` fails `SAFE_COMMAND_RE` | Added `:` to allowed chars — safe in `execFile` argv |
+| I1 | `deleteContext` bare call after success — transient fs error fails group | Wrapped in try/catch with stderr logging |
+| I2 | `create()` base branch `rev-parse` catch discards error detail | Now includes git error message via `getGitErrorMessage` |
+
 ---
 
 ## Remaining ADVISORY Items (future work)
@@ -65,21 +73,23 @@ All CRITICAL, HIGH, and IMPORTANT issues resolved across two review rounds. Rema
 | # | Finding | File |
 |---|---------|------|
 | A1 | `SHELL_EXECUTABLES` comment overstates protection scope | `verification.ts:13` |
-| A2 | `max_retries_on_fail` config field parsed but never used | `config.ts`, `scheduler.ts` |
+| A2 | `max_retries_on_fail` config field parsed but never used | `config.ts` |
 | A3 | `killWorker` in `SchedulerDeps` never called by scheduler | `types.ts` |
 | A4 | `AssignWorkResult.assigned` redundant with `results.length` | `types.ts` |
 | A5 | `step`/`current_issue` coupling unenforced — use discriminated union | `types.ts` |
-| A6 | `buildRealDeps` passthrough wrappers — use direct function refs | `orchestrate.ts:49-62` |
-| A7 | Repeated status-write pattern — extract `writeStep` helper | `scheduler.ts` (6 sites) |
-| A8 | Concurrent group isolation untested (mixed pass/fail) | `scheduler.test.ts` |
-| A9 | `splitCommand` doesn't handle quoted args (by design, undocumented) | `verification.ts:68` |
-| A10 | Git error string matching is brittle across versions | `worktree-manager.ts:77-88` |
-| A11 | `onProgress` exceptions swallowed by `safeWriteStatus` | `orchestrate.ts` + `scheduler.ts` |
+| A6 | `buildRealDeps` passthrough wrappers — use direct function refs | `orchestrate.ts` |
+| A7 | Repeated status-write pattern — extract `writeStep` helper | `scheduler.ts` |
+| A8 | `safeWriteStatus` resilience never tested | `scheduler.test.ts` |
+| A9 | `wrapWithProgress` — `onProgress` throw conflated with status-write failure | `orchestrate.ts` |
+| A10 | `processGroup` inner `deriveSlug` catch unreachable after collision guard | `scheduler.ts` |
+| A11 | `issues_completed`/`issues_remaining` partition invariant unenforced | `types.ts` |
+| A12 | `orchestrate` recomputes `getReadyGroups` + cap that `assignWork` does internally | `orchestrate.ts` |
+| A13 | `getLogPath` duplicates path from `getLogDir` | `worker-manager.ts` |
 
 ---
 
 ## Test Coverage
 
 - **282 tests pass** (15 files)
-- **7 new tests** added in round 2 for previously-unverified behaviors
+- **7 new tests** added in round 2
 - Lint, typecheck, build all clean
