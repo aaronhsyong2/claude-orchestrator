@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadConfig } from './config.js';
-import { deriveSlug } from './slug.js';
+import { deriveSlug, validateBranchName } from './slug.js';
 import type { WorktreeInfo } from './types.js';
 
 function getGitErrorMessage(err: unknown): string {
@@ -41,14 +41,9 @@ export function getPath(branch: string, baseDir?: string): string | null {
 }
 
 export function create(branch: string, baseBranch?: string, baseDir?: string): WorktreeInfo {
-	deriveSlug(branch); // validates branch name (empty, leading hyphen)
+	deriveSlug(branch); // validates branch name (empty, leading hyphen, unsafe chars)
 	const resolvedBase = baseBranch ?? loadConfig(baseDir).base_branch;
-	if (!resolvedBase.trim()) {
-		throw new Error('Base branch name must not be empty');
-	}
-	if (resolvedBase.startsWith('-')) {
-		throw new Error(`Invalid branch name "${resolvedBase}" — must not start with a hyphen`);
-	}
+	validateBranchName(resolvedBase, 'Base branch');
 
 	const wtPath = getWorktreePath(branch, baseDir);
 	const repoDir = path.resolve(baseDir ?? '.');

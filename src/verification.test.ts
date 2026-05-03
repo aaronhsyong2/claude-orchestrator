@@ -5,24 +5,26 @@ import { verify } from './verification.js';
 
 vi.mock('node:child_process', async (importOriginal) => {
 	const actual = await importOriginal<typeof childProcess>();
-	return { ...actual, exec: vi.fn() };
+	return { ...actual, execFile: vi.fn() };
 });
 
-const execMock = vi.mocked(childProcess.exec);
+const execFileMock = vi.mocked(childProcess.execFile);
 
 afterEach(() => {
 	vi.resetAllMocks();
 });
 
-type ExecCallback = (error: Error | null, stdout: string, stderr: string) => void;
+type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
-function mockExecSequence(results: Array<{ exitCode: number; stdout: string; stderr: string }>) {
+function mockExecFileSequence(
+	results: Array<{ exitCode: number; stdout: string; stderr: string }>,
+) {
 	let callIndex = 0;
-	execMock.mockImplementation((_cmd, _opts, callback) => {
+	execFileMock.mockImplementation((_file, _args, _opts, callback) => {
 		const result = results[callIndex++];
-		if (!result) throw new Error('exec called more times than expected');
+		if (!result) throw new Error('execFile called more times than expected');
 
-		const cb = callback as ExecCallback;
+		const cb = callback as ExecFileCallback;
 		if (result.exitCode === 0) {
 			cb(null, result.stdout, result.stderr);
 		} else {
@@ -43,7 +45,7 @@ const BUILD: VerifyCommand = { name: 'build', command: 'pnpm run build' };
 
 describe('verify', () => {
 	it('returns success when all commands pass', async () => {
-		mockExecSequence([
+		mockExecFileSequence([
 			{ exitCode: 0, stdout: 'ok', stderr: '' },
 			{ exitCode: 0, stdout: 'ok', stderr: '' },
 			{ exitCode: 0, stdout: 'ok', stderr: '' },
@@ -58,7 +60,7 @@ describe('verify', () => {
 	});
 
 	it('stops on first failure (fail-fast)', async () => {
-		mockExecSequence([
+		mockExecFileSequence([
 			{ exitCode: 0, stdout: '', stderr: '' },
 			{ exitCode: 1, stdout: '', stderr: 'type error found' },
 		]);
@@ -72,7 +74,7 @@ describe('verify', () => {
 	});
 
 	it('includes step details', async () => {
-		mockExecSequence([{ exitCode: 0, stdout: 'lint output', stderr: 'lint warnings' }]);
+		mockExecFileSequence([{ exitCode: 0, stdout: 'lint output', stderr: 'lint warnings' }]);
 
 		const result = await verify('/repo', [LINT]);
 
@@ -93,17 +95,17 @@ describe('verify', () => {
 
 		expect(result.success).toBe(true);
 		expect(result.steps).toHaveLength(0);
-		expect(execMock).not.toHaveBeenCalled();
+		expect(execFileMock).not.toHaveBeenCalled();
 	});
 
 	it('handles command not found error', async () => {
-		execMock.mockImplementation((_cmd, _opts, callback) => {
+		execFileMock.mockImplementation((_file, _args, _opts, callback) => {
 			const err = new Error('Command failed: nonexistent') as NodeJS.ErrnoException & {
 				status: number;
 			};
 			err.code = 'ENOENT';
 			err.status = 127;
-			(callback as ExecCallback)(err, '', 'command not found: nonexistent');
+			(callback as ExecFileCallback)(err, '', 'command not found: nonexistent');
 			return {} as childProcess.ChildProcess;
 		});
 
@@ -115,37 +117,27 @@ describe('verify', () => {
 		expect(result.steps[0]?.stderr).toContain('command not found');
 	});
 
-	it('passes cwd to exec', async () => {
-		mockExecSequence([{ exitCode: 0, stdout: '', stderr: '' }]);
+	it('passes cwd and timeout to execFile', async () => {
+		mockExecFileSequence([{ exitCode: 0, stdout: '', stderr: '' }]);
 
-		await verify('/my/worktree', [LINT]);
+		await verify('/my/worktree', [LINT], 30000);
 
-		expect(execMock).toHaveBeenCalledWith(
-			'pnpm run check',
-			expect.objectContaining({ cwd: '/my/worktree' }),
-			expect.any(Function),
-		);
-	});
-
-	it('passes timeout to exec', async () => {
-		mockExecSequence([{ exitCode: 0, stdout: '', stderr: '' }]);
-
-		await verify('/repo', [LINT], 30000);
-
-		expect(execMock).toHaveBeenCalledWith(
-			'pnpm run check',
-			expect.objectContaining({ timeout: 30000 }),
+		expect(execFileMock).toHaveBeenCalledWith(
+			'pnpm',
+			['run', 'check'],
+			expect.objectContaining({ cwd: '/my/worktree', timeout: 30000 }),
 			expect.any(Function),
 		);
 	});
 
 	it('uses default timeout of 5 minutes', async () => {
-		mockExecSequence([{ exitCode: 0, stdout: '', stderr: '' }]);
+		mockExecFileSequence([{ exitCode: 0, stdout: '', stderr: '' }]);
 
 		await verify('/repo', [LINT]);
 
-		expect(execMock).toHaveBeenCalledWith(
-			'pnpm run check',
+		expect(execFileMock).toHaveBeenCalledWith(
+			'pnpm',
+			['run', 'check'],
 			expect.objectContaining({ timeout: 300000 }),
 			expect.any(Function),
 		);
@@ -153,9 +145,9 @@ describe('verify', () => {
 
 	it('executes commands in serial order', async () => {
 		const order: string[] = [];
-		execMock.mockImplementation((cmd, _opts, callback) => {
-			order.push(cmd as string);
-			(callback as ExecCallback)(null, '', '');
+		execFileMock.mockImplementation((file, args, _opts, callback) => {
+			order.push(`${file} ${(args as string[]).join(' ')}`);
+			(callback as ExecFileCallback)(null, '', '');
 			return {} as childProcess.ChildProcess;
 		});
 
@@ -165,7 +157,7 @@ describe('verify', () => {
 	});
 
 	it('captures stdout and stderr separately', async () => {
-		mockExecSequence([{ exitCode: 0, stdout: 'standard output', stderr: 'error output' }]);
+		mockExecFileSequence([{ exitCode: 0, stdout: 'standard output', stderr: 'error output' }]);
 
 		const result = await verify('/repo', [LINT]);
 
@@ -174,7 +166,7 @@ describe('verify', () => {
 	});
 
 	it('uses stderr as error when available, falls back to stdout', async () => {
-		mockExecSequence([{ exitCode: 1, stdout: 'stdout fallback', stderr: '' }]);
+		mockExecFileSequence([{ exitCode: 1, stdout: 'stdout fallback', stderr: '' }]);
 
 		const result = await verify('/repo', [LINT]);
 
@@ -182,7 +174,7 @@ describe('verify', () => {
 	});
 
 	it('first command fails immediately', async () => {
-		mockExecSequence([{ exitCode: 1, stdout: '', stderr: 'lint failed' }]);
+		mockExecFileSequence([{ exitCode: 1, stdout: '', stderr: 'lint failed' }]);
 
 		const result = await verify('/repo', [LINT, TYPECHECK, BUILD]);
 
@@ -200,12 +192,12 @@ describe('verify', () => {
 	});
 
 	it('reports timeout with exit code 124', async () => {
-		execMock.mockImplementation((_cmd, _opts, callback) => {
+		execFileMock.mockImplementation((_file, _args, _opts, callback) => {
 			const err = new Error('Command timed out') as NodeJS.ErrnoException & {
 				killed: boolean;
 			};
 			err.killed = true;
-			(callback as ExecCallback)(err, '', '');
+			(callback as ExecFileCallback)(err, '', '');
 			return {} as childProcess.ChildProcess;
 		});
 
@@ -214,5 +206,23 @@ describe('verify', () => {
 		expect(result.success).toBe(false);
 		expect(result.failedStep).toBe('lint');
 		expect(result.steps[0]?.exitCode).toBe(124);
+	});
+
+	it('rejects commands with unsafe characters', async () => {
+		const unsafe: VerifyCommand = { name: 'evil', command: 'rm -rf /; echo pwned' };
+
+		await expect(verify('/repo', [unsafe])).rejects.toThrow(/unsafe characters/);
+	});
+
+	it('rejects shell-delegation executables', async () => {
+		const shCmd: VerifyCommand = { name: 'shell', command: 'sh -c echo' };
+		const bashCmd: VerifyCommand = { name: 'bash', command: 'bash -c echo' };
+		const pythonCmd: VerifyCommand = { name: 'python', command: 'python -c x=1' };
+		const envCmd: VerifyCommand = { name: 'env', command: 'env pnpm run test' };
+
+		await expect(verify('/repo', [shCmd])).rejects.toThrow(/shell-delegation executable/);
+		await expect(verify('/repo', [bashCmd])).rejects.toThrow(/shell-delegation executable/);
+		await expect(verify('/repo', [pythonCmd])).rejects.toThrow(/shell-delegation executable/);
+		await expect(verify('/repo', [envCmd])).rejects.toThrow(/shell-delegation executable/);
 	});
 });

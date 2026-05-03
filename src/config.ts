@@ -52,6 +52,8 @@ export function validateConfig(value: unknown): value is OrchestratorConfig {
 	return (
 		typeof obj.base_branch === 'string' &&
 		typeof obj.max_concurrent_agents === 'number' &&
+		obj.max_concurrent_agents >= 1 &&
+		obj.max_concurrent_agents <= 20 &&
 		typeof obj.max_retries_on_fail === 'number' &&
 		typeof obj.max_review_cycles === 'number' &&
 		Array.isArray(obj.verify) &&

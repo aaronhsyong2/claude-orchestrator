@@ -30,6 +30,16 @@ describe('deriveSlug', () => {
 		expect(() => deriveSlug('///')).toThrow('produces an empty slug');
 	});
 
+	it('throws on unsafe characters', () => {
+		expect(() => deriveSlug('feat/my branch')).toThrow('unsafe characters');
+		expect(() => deriveSlug('feat;evil')).toThrow('unsafe characters');
+		expect(() => deriveSlug('feat$inject')).toThrow('unsafe characters');
+	});
+
+	it('throws on consecutive dots', () => {
+		expect(() => deriveSlug('a..b')).toThrow('must not contain consecutive dots');
+	});
+
 	it('produces identical slugs for colliding branch names', () => {
 		expect(deriveSlug('feat/my-branch')).toBe(deriveSlug('feat-my-branch'));
 	});
