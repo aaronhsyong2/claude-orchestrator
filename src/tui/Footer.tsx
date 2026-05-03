@@ -1,18 +1,47 @@
 import { Box, Text } from 'ink';
 import type { ReactNode } from 'react';
+import type { OverlayMode, ScreenMode } from './types.js';
 
-const HINTS: readonly (readonly [string, string])[] = [
-	['q', 'quit'],
-	['\u2191\u2193', 'select'],
-	['\u2190\u2192', 'panel'],
-	['enter', 'details'],
-];
+interface FooterProps {
+	readonly activePanel: number;
+	readonly screenMode: ScreenMode;
+	readonly overlay: OverlayMode;
+}
 
-export function Footer(): ReactNode {
+const NEXT_MODE: Record<ScreenMode, ScreenMode> = {
+	normal: 'half',
+	half: 'full',
+	full: 'normal',
+};
+
+const JK_LABEL: Record<number, string> = {
+	0: 'group',
+	1: 'issue',
+};
+
+function getHints(
+	activePanel: number,
+	screenMode: ScreenMode,
+	overlay: OverlayMode,
+): readonly (readonly [string, string])[] {
+	const jkLabel = JK_LABEL[activePanel];
+	const hints: (readonly [string, string])[] = [
+		['1-3', 'panel'],
+		...(jkLabel ? [['j/k', jkLabel] as const] : []),
+		['+', `layout:${NEXT_MODE[screenMode]}`],
+		['d', overlay === 'deps' ? 'deps:on' : 'deps'],
+		['l', overlay === 'logs' ? 'logs:on' : 'logs'],
+		['q', 'quit'],
+	];
+	return hints;
+}
+
+export function Footer({ activePanel, screenMode, overlay }: FooterProps): ReactNode {
+	const hints = getHints(activePanel, screenMode, overlay);
 	return (
 		<Box>
-			{HINTS.map(([key, label], i) => (
-				<Box key={key} marginRight={1}>
+			{hints.map(([key, label], i) => (
+				<Box key={`${key}-${label}`} marginRight={1}>
 					{i > 0 && <Text dimColor> | </Text>}
 					<Text bold>{key}</Text>
 					<Text dimColor> {label}</Text>

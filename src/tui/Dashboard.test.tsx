@@ -1,11 +1,16 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { Text } from 'ink';
 import { render } from 'ink-testing-library';
-import React from 'react';
+import React, { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import type { GroupStatus } from '../types.js';
 import { ActivityPanel } from './ActivityPanel.js';
+import { DependencyGraphView } from './DependencyGraphView.js';
 import { Footer } from './Footer.js';
 import { IssuesPanel } from './IssuesPanel.js';
+import { LogTailView } from './LogTailView.js';
 import { MainView } from './MainView.js';
 import { Panel } from './Panel.js';
 import { PRGroupsPanel } from './PRGroupsPanel.js';
@@ -160,12 +165,135 @@ describe('MainView', () => {
 });
 
 describe('Footer', () => {
-	it('shows keybinding hints', () => {
-		const { lastFrame } = render(React.createElement(Footer));
+	it('shows keybinding hints with default state', () => {
+		const { lastFrame } = render(
+			React.createElement(Footer, { activePanel: 0, screenMode: 'normal', overlay: 'none' }),
+		);
 		const frame = lastFrame();
 		expect(frame).toContain('quit');
-		expect(frame).toContain('select');
 		expect(frame).toContain('panel');
+		// + shows next mode (normal → half)
+		expect(frame).toContain('layout:half');
+	});
+
+	it('shows contextual j/k label for groups panel', () => {
+		const { lastFrame } = render(
+			React.createElement(Footer, { activePanel: 0, screenMode: 'normal', overlay: 'none' }),
+		);
+		expect(lastFrame()).toContain('group');
+	});
+
+	it('shows contextual j/k label for issues panel', () => {
+		const { lastFrame } = render(
+			React.createElement(Footer, { activePanel: 1, screenMode: 'normal', overlay: 'none' }),
+		);
+		expect(lastFrame()).toContain('issue');
+	});
+
+	it('hides j/k hint for activity panel', () => {
+		const { lastFrame } = render(
+			React.createElement(Footer, { activePanel: 2, screenMode: 'normal', overlay: 'none' }),
+		);
+		expect(lastFrame()).not.toContain('j/k');
+	});
+
+	it('reflects active overlay in hints', () => {
+		const { lastFrame } = render(
+			React.createElement(Footer, { activePanel: 0, screenMode: 'normal', overlay: 'deps' }),
+		);
+		expect(lastFrame()).toContain('deps:on');
+	});
+
+	it('shows next mode in + hint', () => {
+		const { lastFrame } = render(
+			React.createElement(Footer, { activePanel: 0, screenMode: 'half', overlay: 'none' }),
+		);
+		// half → next is full
+		expect(lastFrame()).toContain('layout:full');
+	});
+});
+
+describe('DependencyGraphView', () => {
+	it('shows empty state when no groups', () => {
+		const { lastFrame } = render(React.createElement(DependencyGraphView, { groups: [] }));
+		expect(lastFrame()).toContain('No groups');
+	});
+
+	it('renders all group names with connectors', () => {
+		const groups = [makeGroup(), makeGroup({ pr_group: 'pr-2' }), makeGroup({ pr_group: 'pr-3' })];
+		const { lastFrame } = render(React.createElement(DependencyGraphView, { groups }));
+		const frame = lastFrame();
+		expect(frame).toContain('pr-5');
+		expect(frame).toContain('pr-2');
+		expect(frame).toContain('pr-3');
+	});
+});
+
+describe('LogTailView', () => {
+	it('shows empty state when no group slug', () => {
+		const { lastFrame } = render(
+			React.createElement(LogTailView, { groupSlug: null, baseDir: '/tmp' }),
+		);
+		expect(lastFrame()).toContain('No group selected');
+	});
+
+	it('shows no logs when log dir does not exist', async () => {
+		const { lastFrame } = render(
+			React.createElement(LogTailView, {
+				groupSlug: 'pr-nonexistent',
+				baseDir: '/tmp/no-such-dir',
+			}),
+		);
+		await act(async () => {});
+		expect(lastFrame()).toContain('No logs');
+	});
+
+	it('shows no logs when log dir exists but has no .log files', async () => {
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logtail-empty-'));
+		const groupSlug = 'pr-empty';
+		const logDir = path.join(tmpDir, '.orchestrator', 'logs', groupSlug);
+		fs.mkdirSync(logDir, { recursive: true });
+		// No .log files — only a README
+		fs.writeFileSync(path.join(logDir, 'README.txt'), 'not a log');
+
+		try {
+			const { lastFrame } = render(
+				React.createElement(LogTailView, { groupSlug, baseDir: tmpDir }),
+			);
+			await act(async () => {});
+			expect(lastFrame()).toContain('No logs');
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it('shows invalid group for traversal-style slug', async () => {
+		const { lastFrame } = render(
+			React.createElement(LogTailView, { groupSlug: '../../etc/passwd', baseDir: '/tmp' }),
+		);
+		await act(async () => {});
+		expect(lastFrame()).toContain('Invalid group');
+	});
+
+	it('renders log content from existing log file', async () => {
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logtail-test-'));
+		const groupSlug = 'pr-test';
+		const logDir = path.join(tmpDir, '.orchestrator', 'logs', groupSlug);
+		fs.mkdirSync(logDir, { recursive: true });
+		fs.writeFileSync(path.join(logDir, 'agent.log'), 'line one\nline two\nline three\n');
+
+		try {
+			const { lastFrame } = render(
+				React.createElement(LogTailView, { groupSlug, baseDir: tmpDir }),
+			);
+			await act(async () => {});
+			const frame = lastFrame();
+			expect(frame).toContain('line one');
+			expect(frame).toContain('line two');
+			expect(frame).toContain('line three');
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
 	});
 });
 

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { assertValidIssue, assertValidSlug } from './validation.js';
+import { assertValidIssue, assertValidSlug, isValidSlug } from './validation.js';
+
+describe('isValidSlug', () => {
+	it('returns true for valid slug', () => expect(isValidSlug('pr-1')).toBe(true));
+	it('returns true for alphanumeric slug', () => expect(isValidSlug('my-feature-123')).toBe(true));
+	it('returns false for traversal slug', () => expect(isValidSlug('../../etc/passwd')).toBe(false));
+	it('returns false for empty string', () => expect(isValidSlug('')).toBe(false));
+	it('returns false for leading hyphen', () => expect(isValidSlug('-bad')).toBe(false));
+});
 
 describe('assertValidSlug', () => {
 	it('accepts valid slugs', () => {
