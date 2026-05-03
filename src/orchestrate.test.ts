@@ -83,7 +83,9 @@ function buildMockDeps(
 			statusStore.write(slug, data);
 		}),
 		readContext: vi.fn().mockReturnValue(null),
+		writeContext: vi.fn(),
 		deleteContext: vi.fn(),
+		notify: vi.fn().mockResolvedValue(undefined),
 	};
 }
 
@@ -219,7 +221,7 @@ describe('orchestrate', () => {
 		});
 
 		expect(result.results[0].completed).toBe(false);
-		expect(result.results[0].error).toContain('worker exited with code 1');
+		expect(result.results[0].error).toContain('crashed 2 times consecutively');
 		expect(progress).toContain('  Issue #30: implementing...');
 		// No "done" or "ready for review"
 		expect(progress).not.toContain('  Issue #30: done');
@@ -239,7 +241,7 @@ describe('orchestrate', () => {
 		});
 
 		expect(result.results[0].completed).toBe(false);
-		expect(result.results[0].error).toContain('verification failed');
+		expect(result.results[0].error).toContain('max retries exhausted');
 		expect(progress).toContain('  Issue #30: implementing...');
 		expect(progress).toContain('  Issue #30: verifying...');
 		expect(progress).not.toContain('  Issue #30: done');

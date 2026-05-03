@@ -5,8 +5,10 @@ import {
 	deleteContext as realDeleteContext,
 	readContext as realReadContext,
 	readGroupStatus as realReadGroupStatus,
+	writeContext as realWriteContext,
 	writeGroupStatus as realWriteGroupStatus,
 } from './status-manager.js';
+import { notify as realNotify } from './tui/notification-service.js';
 import type {
 	AssignWorkResult,
 	GroupStatus,
@@ -58,7 +60,9 @@ function buildRealDeps(): SchedulerDeps {
 		readGroupStatus: realReadGroupStatus,
 		writeGroupStatus: realWriteGroupStatus,
 		readContext: realReadContext,
+		writeContext: realWriteContext,
 		deleteContext: realDeleteContext,
+		notify: realNotify,
 	};
 }
 

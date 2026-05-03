@@ -60,7 +60,9 @@ function createMockDeps(overrides?: Partial<SchedulerDeps>): SchedulerDeps {
 			statuses.set(slug, data);
 		}),
 		readContext: vi.fn(() => null),
+		writeContext: vi.fn(),
 		deleteContext: vi.fn(),
+		notify: vi.fn(async () => {}),
 		...overrides,
 	};
 }
@@ -195,12 +197,12 @@ describe('assignWork', () => {
 
 		expect(result.results[0]?.completed).toBe(false);
 		expect(result.results[0]?.failedIssue).toBe(10);
-		expect(result.results[0]?.error).toContain('worker exited with code 1');
-		// Second issue should not have been attempted
-		expect(deps.spawnWorker).toHaveBeenCalledTimes(1);
+		expect(result.results[0]?.error).toContain('crashed 2 times consecutively');
+		// Crash escalation: retry once silently, escalate on second crash
+		expect(deps.spawnWorker).toHaveBeenCalledTimes(2);
 	});
 
-	it('stops on verification failure', async () => {
+	it('stops on verification failure after retries', async () => {
 		const group = makeGroup({ pr_number: 1, branch: 'feat/vfail' });
 		const deps = createMockDeps({
 			verify: vi.fn(async () => ({
@@ -214,7 +216,7 @@ describe('assignWork', () => {
 		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
 
 		expect(result.results[0]?.completed).toBe(false);
-		expect(result.results[0]?.error).toContain('verification failed at step: lint');
+		expect(result.results[0]?.error).toContain('max retries exhausted');
 	});
 
 	it('sets step to reviewing when all issues complete', async () => {
@@ -471,7 +473,7 @@ describe('assignWork', () => {
 		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
 
 		expect(result.results[0]?.completed).toBe(false);
-		expect(result.results[0]?.error).toContain('spawn claude ENOENT');
+		expect(result.results[0]?.error).toContain('crashed 2 times consecutively');
 	});
 
 	it('handles invalid branch name gracefully', async () => {

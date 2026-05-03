@@ -125,7 +125,9 @@ export interface SchedulerDeps {
 	readonly readGroupStatus: (groupSlug: string) => GroupStatus | null;
 	readonly writeGroupStatus: (groupSlug: string, data: GroupStatus) => void;
 	readonly readContext: (groupSlug: string, issue: string) => string | null;
+	readonly writeContext: (groupSlug: string, issue: string, content: string) => void;
 	readonly deleteContext: (groupSlug: string, issue: string) => void;
+	readonly notify: (message: string, config: NotificationConfig) => Promise<void>;
 }
 
 export interface GroupResult {

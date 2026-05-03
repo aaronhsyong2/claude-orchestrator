@@ -1,3 +1,4 @@
+import { executeWithRetry } from './retry-coordinator.js';
 import { deriveSlug } from './slug.js';
 import type {
 	AssignWorkResult,
@@ -6,7 +7,6 @@ import type {
 	PlanData,
 	PRGroup,
 	SchedulerDeps,
-	WorkerEvent,
 	WorktreeInfo,
 } from './types.js';
 
@@ -84,8 +84,6 @@ async function processIssue(
 	}
 
 	try {
-		const contextContent = deps.readContext(slug, String(issueNumber)) ?? undefined;
-
 		// coding
 		safeWriteStatus(deps, slug, {
 			...freshStatus(slug, group, deps, now),
@@ -95,71 +93,31 @@ async function processIssue(
 			last_updated: now(),
 		});
 
-		// Spawn worker and wait for exit
-		let exitCode: number;
-		try {
-			exitCode = await new Promise<number>((resolve, reject) => {
-				try {
-					deps.spawnWorker(
-						String(issueNumber),
-						slug,
-						worktreeInfo.worktreePath,
-						(workerEvent: WorkerEvent) => {
-							if (workerEvent.event === 'exited') resolve(workerEvent.data);
-							if (workerEvent.event === 'error') reject(workerEvent.data);
-						},
-						contextContent,
-					);
-				} catch (err) {
-					reject(err);
-				}
-			});
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			safeWriteStatus(deps, slug, {
-				...freshStatus(slug, group, deps, now),
-				current_issue: issueNumber,
-				step: 'coding',
-				step_result: `worker error: ${message}`,
-				last_updated: now(),
-			});
-			return { success: false, error: `worker error: ${message}` };
+		const currentStatus = freshStatus(slug, group, deps, now);
+		const retryResult = await executeWithRetry(
+			issueNumber,
+			slug,
+			worktreeInfo.worktreePath,
+			currentStatus,
+			config,
+			{
+				spawnWorker: deps.spawnWorker,
+				verify: deps.verify,
+				readContext: deps.readContext,
+				writeContext: deps.writeContext,
+				writeGroupStatus: deps.writeGroupStatus,
+				notify: deps.notify,
+			},
+		);
+
+		if (!retryResult.success) {
+			return {
+				success: false,
+				error: retryResult.escalationReason ?? 'retry failed',
+			};
 		}
 
-		if (exitCode !== 0) {
-			safeWriteStatus(deps, slug, {
-				...freshStatus(slug, group, deps, now),
-				current_issue: issueNumber,
-				step: 'coding',
-				step_result: `worker exited with code ${exitCode}`,
-				last_updated: now(),
-			});
-			return { success: false, error: `worker exited with code ${exitCode}` };
-		}
-
-		// verifying
-		safeWriteStatus(deps, slug, {
-			...freshStatus(slug, group, deps, now),
-			current_issue: issueNumber,
-			step: 'verifying',
-			step_result: '',
-			last_updated: now(),
-		});
-
-		const verifyResult = await deps.verify(worktreeInfo.worktreePath, config.verify);
-
-		if (!verifyResult.success) {
-			safeWriteStatus(deps, slug, {
-				...freshStatus(slug, group, deps, now),
-				current_issue: issueNumber,
-				step: 'verifying',
-				step_result: `failed: ${verifyResult.failedStep}`,
-				last_updated: now(),
-			});
-			return { success: false, error: `verification failed at step: ${verifyResult.failedStep}` };
-		}
-
-		// Success — record completion first, then delete context
+		// Success — record completion, delete context
 		const updatedStatus = freshStatus(slug, group, deps, now);
 		safeWriteStatus(deps, slug, {
 			...updatedStatus,
