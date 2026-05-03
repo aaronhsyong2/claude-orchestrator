@@ -9,7 +9,8 @@ export function spawnTakeover(request: TakeoverRequest): Promise<number> {
 		let args: string[];
 
 		if (mode === 'shell') {
-			command = process.env.SHELL || '/bin/sh';
+			const shell = process.env.SHELL;
+			command = shell?.startsWith('/') ? shell : '/bin/sh';
 			args = [];
 		} else {
 			command = 'nvim';
@@ -26,8 +27,12 @@ export function spawnTakeover(request: TakeoverRequest): Promise<number> {
 			reject(new Error(`Failed to spawn ${mode}: ${err.message}`));
 		});
 
-		proc.on('close', (code) => {
-			resolve(code ?? 0);
+		proc.on('close', (code, signal) => {
+			if (code !== null) {
+				resolve(code);
+			} else {
+				reject(new Error(`${mode} process killed by signal ${signal ?? 'unknown'}`));
+			}
 		});
 	});
 }

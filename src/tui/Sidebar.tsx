@@ -10,6 +10,7 @@ interface SidebarProps {
 	readonly groups: readonly GroupStatus[];
 	readonly activePanel: number;
 	readonly selectedGroupIndex: number;
+	readonly selectedGroup: GroupStatus | null;
 	readonly selectedIssueIndex: number;
 	readonly activity: readonly ActivityEvent[];
 }
@@ -18,11 +19,10 @@ export function Sidebar({
 	groups,
 	activePanel,
 	selectedGroupIndex,
+	selectedGroup,
 	selectedIssueIndex,
 	activity,
 }: SidebarProps): ReactNode {
-	const selectedGroup = groups[selectedGroupIndex] ?? null;
-
 	return (
 		<Box flexDirection="column" flexGrow={1}>
 			<PRGroupsPanel

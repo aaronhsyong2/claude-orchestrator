@@ -318,7 +318,10 @@ describe('LogTailView', () => {
 			const { lastFrame } = render(
 				React.createElement(LogTailView, { groupSlug, baseDir: tmpDir }),
 			);
-			await act(async () => {});
+			// Wait for async readFile to complete
+			await act(async () => {
+				await new Promise((r) => setTimeout(r, 50));
+			});
 			const frame = lastFrame();
 			expect(frame).toContain('line one');
 			expect(frame).toContain('line two');
@@ -338,6 +341,7 @@ describe('Sidebar', () => {
 				groups,
 				activePanel: 0,
 				selectedGroupIndex: 0,
+				selectedGroup: groups[0] ?? null,
 				selectedIssueIndex: 0,
 				activity: events,
 			}),
@@ -354,6 +358,7 @@ describe('Sidebar', () => {
 				groups: [],
 				activePanel: 0,
 				selectedGroupIndex: 0,
+				selectedGroup: null,
 				selectedIssueIndex: 0,
 				activity: [],
 			}),

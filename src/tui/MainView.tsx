@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import type { ReactNode } from 'react';
 import type { GroupStatus } from '../types.js';
 import { Panel } from './Panel.js';
-import { getStatusIcon } from './status-icon.js';
+import { getIssueIcon } from './status-icon.js';
 
 interface MainViewProps {
 	readonly group: GroupStatus | null;
@@ -23,7 +23,6 @@ export function MainView({ group }: MainViewProps): ReactNode {
 	const total = group.issues_completed.length + group.issues_remaining.length;
 	const done = group.issues_completed.length;
 	const progress = total > 0 ? Math.round((done / total) * 100) : 0;
-	const completedSet = new Set(group.issues_completed);
 	const allIssues = [...group.issues_completed, ...group.issues_remaining];
 
 	return (
@@ -56,12 +55,7 @@ export function MainView({ group }: MainViewProps): ReactNode {
 						Issues
 					</Text>
 					{allIssues.map((issue) => {
-						const isCompleted = completedSet.has(issue);
-						const isCurrent = issue === group.current_issue;
-						const step = isCompleted ? 'idle' : isCurrent ? group.step : 'idle';
-						const result = isCompleted ? 'pass' : '';
-						const icon = getStatusIcon(step, result);
-						const stepLabel = isCurrent && group.step !== 'idle' ? ` [${group.step}]` : '';
+						const { icon, stepLabel } = getIssueIcon(issue, group);
 
 						return (
 							<Text key={issue}>

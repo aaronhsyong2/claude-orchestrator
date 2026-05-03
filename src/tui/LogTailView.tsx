@@ -16,22 +16,36 @@ const POLL_MS = 2000;
 
 export function LogTailView({ groupSlug, baseDir }: LogTailViewProps): ReactNode {
 	const [lines, setLines] = useState<readonly string[]>([]);
+	const [readError, setReadError] = useState<string | null>(null);
 
 	useEffect(() => {
 		if (!groupSlug || !isValidSlug(groupSlug)) {
 			setLines([]);
+			setReadError(null);
 			return;
 		}
 
 		const logDir = path.resolve(baseDir, '.orchestrator/logs', groupSlug);
+		let active = true;
 
-		function refresh(): void {
-			setLines(readLatestLogLines(logDir, MAX_LINES));
+		async function refresh(): Promise<void> {
+			const result = await readLatestLogLines(logDir, MAX_LINES);
+			if (!active) return;
+			if (result.error) {
+				setReadError(result.error);
+				setLines([]);
+			} else {
+				setReadError(null);
+				setLines(result.lines);
+			}
 		}
 
-		refresh();
-		const id = setInterval(refresh, POLL_MS);
-		return () => clearInterval(id);
+		void refresh();
+		const id = setInterval(() => void refresh(), POLL_MS);
+		return () => {
+			active = false;
+			clearInterval(id);
+		};
 	}, [groupSlug, baseDir]);
 
 	if (!groupSlug) {
@@ -57,7 +71,9 @@ export function LogTailView({ groupSlug, baseDir }: LogTailViewProps): ReactNode
 	return (
 		<Panel title={`Logs (${groupSlug})`} active={false}>
 			<Box flexDirection="column" marginLeft={1}>
-				{lines.length === 0 ? (
+				{readError ? (
+					<Text color="red">Log read failed: {readError}</Text>
+				) : lines.length === 0 ? (
 					<Text dimColor>No logs</Text>
 				) : (
 					lines.map((line, i) => (
@@ -72,22 +88,27 @@ export function LogTailView({ groupSlug, baseDir }: LogTailViewProps): ReactNode
 	);
 }
 
-function readLatestLogLines(logDir: string, maxLines: number): readonly string[] {
-	if (!fs.existsSync(logDir)) return [];
+interface LogReadResult {
+	readonly lines: readonly string[];
+	readonly error?: string;
+}
 
-	const files = fs
-		.readdirSync(logDir)
-		.filter((f) => f.endsWith('.log'))
-		.sort()
-		.reverse();
-
-	if (files.length === 0) return [];
-
-	const latestLog = path.join(logDir, files[0] as string);
+async function readLatestLogLines(logDir: string, maxLines: number): Promise<LogReadResult> {
 	try {
-		const content = fs.readFileSync(latestLog, 'utf-8');
-		return content.split('\n').filter(Boolean).slice(-maxLines);
-	} catch {
-		return [];
+		const entries = await fs.promises.readdir(logDir);
+		const files = entries
+			.filter((f) => f.endsWith('.log'))
+			.sort()
+			.reverse();
+
+		if (files.length === 0) return { lines: [] };
+
+		const latestLog = path.join(logDir, files[0] as string);
+		const content = await fs.promises.readFile(latestLog, 'utf-8');
+		return { lines: content.split('\n').filter(Boolean).slice(-maxLines) };
+	} catch (err: unknown) {
+		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { lines: [] };
+		const msg = err instanceof Error ? err.message : String(err);
+		return { lines: [], error: msg };
 	}
 }

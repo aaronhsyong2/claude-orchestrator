@@ -2,7 +2,7 @@ import { Box, Text } from 'ink';
 import type { ReactNode } from 'react';
 import type { GroupStatus } from '../types.js';
 import { Panel } from './Panel.js';
-import { getStatusIcon } from './status-icon.js';
+import { getIssueIcon } from './status-icon.js';
 
 interface IssuesPanelProps {
 	readonly group: GroupStatus | null;
@@ -35,18 +35,11 @@ export function IssuesPanel({ group, active, selectedIndex }: IssuesPanelProps):
 		);
 	}
 
-	const completedSet = new Set(group.issues_completed);
-
 	return (
 		<Panel title={title} active={active}>
 			{allIssues.map((issue, i) => {
-				const isCompleted = completedSet.has(issue);
-				const isCurrent = issue === group.current_issue;
-				const step = isCompleted ? 'idle' : isCurrent ? group.step : 'idle';
-				const result = isCompleted ? 'pass' : '';
-				const icon = getStatusIcon(step, result);
+				const { icon, stepLabel } = getIssueIcon(issue, group);
 				const selected = i === selectedIndex;
-				const stepLabel = isCurrent && group.step !== 'idle' ? ` [${group.step}]` : '';
 
 				return (
 					<Box key={issue} marginLeft={1}>

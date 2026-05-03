@@ -1,16 +1,16 @@
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { NotificationConfig } from '../types.js';
-import type { NotificationLevel } from './types.js';
 
 const execFile = promisify(execFileCb);
 
 export async function sendSystemNotification(message: string): Promise<boolean> {
 	try {
-		const escaped = message.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
 		await execFile('osascript', [
 			'-e',
-			`display notification "${escaped}" with title "Orchestrator"`,
+			'on run argv\ndisplay notification (item 1 of argv) with title "Orchestrator"\nend run',
+			'--',
+			message,
 		]);
 		return true;
 	} catch (err) {
@@ -20,11 +20,7 @@ export async function sendSystemNotification(message: string): Promise<boolean> 
 	}
 }
 
-export async function notify(
-	message: string,
-	_level: NotificationLevel,
-	config: NotificationConfig,
-): Promise<void> {
+export async function notify(message: string, config: NotificationConfig): Promise<void> {
 	if (config.system) {
 		await sendSystemNotification(message);
 	}

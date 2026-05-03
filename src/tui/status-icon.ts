@@ -1,4 +1,4 @@
-import type { GroupStep } from '../types.js';
+import type { GroupStatus, GroupStep } from '../types.js';
 import type { StatusIconChar } from './types.js';
 
 export function getStatusIcon(step: GroupStep, result: string): StatusIconChar {
@@ -17,4 +17,19 @@ export function getGroupIcon(
 	if (remaining === 0 && completed > 0) return '\u2713';
 	if (step !== 'idle') return '\u2699';
 	return '\u00B7';
+}
+
+export interface IssueIconResult {
+	readonly icon: StatusIconChar;
+	readonly stepLabel: string;
+}
+
+export function getIssueIcon(issue: number, group: GroupStatus): IssueIconResult {
+	const isCompleted = group.issues_completed.includes(issue);
+	const isCurrent = issue === group.current_issue;
+	const step = isCompleted ? 'idle' : isCurrent ? group.step : 'idle';
+	const result = isCompleted ? 'pass' : '';
+	const icon = getStatusIcon(step, result);
+	const stepLabel = isCurrent && group.step !== 'idle' ? ` [${group.step}]` : '';
+	return { icon, stepLabel };
 }

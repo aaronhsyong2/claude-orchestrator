@@ -1,9 +1,15 @@
 import { existsSync } from 'node:fs';
 import { useApp, useInput } from 'ink';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { GroupStatus } from '../types.js';
 import { getWorktreePath } from '../worktree-manager.js';
-import type { DashboardState, OverlayMode, ScreenMode, TakeoverRequest } from './types.js';
+import type {
+	DashboardState,
+	OverlayMode,
+	PanelIndex,
+	ScreenMode,
+	TakeoverRequest,
+} from './types.js';
 
 interface UseKeyboardOptions {
 	readonly groups: readonly GroupStatus[];
@@ -14,7 +20,7 @@ interface UseKeyboardOptions {
 }
 
 interface KeyboardState {
-	readonly activePanel: number;
+	readonly activePanel: PanelIndex;
 	readonly selectedGroupIndex: number;
 	readonly selectedIssueIndex: number;
 	readonly screenMode: ScreenMode;
@@ -30,7 +36,7 @@ export function useKeyboard({
 	onQuit,
 }: UseKeyboardOptions): KeyboardState {
 	const { exit } = useApp();
-	const [activePanel, setActivePanel] = useState(initialState?.activePanel ?? 0);
+	const [activePanel, setActivePanel] = useState<PanelIndex>(initialState?.activePanel ?? 0);
 	const [selectedGroupIndex, setSelectedGroupIndex] = useState(
 		initialState?.selectedGroupIndex ?? 0,
 	);
@@ -40,6 +46,13 @@ export function useKeyboard({
 	const [screenMode, setScreenMode] = useState<ScreenMode>(initialState?.screenMode ?? 'normal');
 	const [overlay, setOverlay] = useState<OverlayMode>(initialState?.overlay ?? 'none');
 	const [error, setError] = useState<string | null>(null);
+
+	// Auto-dismiss error after 3 seconds
+	useEffect(() => {
+		if (!error) return;
+		const timer = setTimeout(() => setError(null), 3000);
+		return () => clearTimeout(timer);
+	}, [error]);
 
 	const groupCount = groups.length;
 	const selectedGroup = groups[selectedGroupIndex];
@@ -67,8 +80,20 @@ export function useKeyboard({
 		}
 	}, [issueCount, selectedIssueIndex]);
 
+	const stateRef = useRef<DashboardState>({
+		activePanel,
+		selectedGroupIndex,
+		selectedIssueIndex,
+		screenMode,
+		overlay,
+	});
+
+	useEffect(() => {
+		stateRef.current = { activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay };
+	}, [activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay]);
+
 	function currentState(): DashboardState {
-		return { activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay };
+		return stateRef.current;
 	}
 
 	function navigateDown(): void {
@@ -92,16 +117,9 @@ export function useKeyboard({
 	}
 
 	useInput((input, key) => {
-		if (input === '1') {
-			setActivePanel(0);
-			return;
-		}
-		if (input === '2') {
-			setActivePanel(1);
-			return;
-		}
-		if (input === '3') {
-			setActivePanel(2);
+		const panelKey = Number(input) - 1;
+		if (panelKey >= 0 && panelKey <= 2) {
+			setActivePanel(panelKey as PanelIndex);
 			return;
 		}
 
@@ -133,29 +151,16 @@ export function useKeyboard({
 			return;
 		}
 
-		if (key.return && activePanel === 0) {
+		if ((key.return || input === 'v') && activePanel === 0) {
+			const mode = key.return ? 'shell' : 'nvim';
 			const group = groups[selectedGroupIndex];
 			if (!group) return;
 			const worktreePath = getWorktreePath(group.branch, baseDir);
 			if (!existsSync(worktreePath)) {
 				setError(`Worktree not found: ${group.branch}`);
-				setTimeout(() => setError(null), 3000);
 				return;
 			}
-			onTakeover?.({ mode: 'shell', worktreePath, branch: group.branch }, currentState());
-			return;
-		}
-
-		if (input === 'v' && activePanel === 0) {
-			const group = groups[selectedGroupIndex];
-			if (!group) return;
-			const worktreePath = getWorktreePath(group.branch, baseDir);
-			if (!existsSync(worktreePath)) {
-				setError(`Worktree not found: ${group.branch}`);
-				setTimeout(() => setError(null), 3000);
-				return;
-			}
-			onTakeover?.({ mode: 'nvim', worktreePath, branch: group.branch }, currentState());
+			onTakeover?.({ mode, worktreePath, branch: group.branch }, currentState());
 			return;
 		}
 

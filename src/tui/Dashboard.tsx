@@ -33,7 +33,8 @@ export function Dashboard({
 	const { width, height } = useScreenSize();
 	const { groups, activity } = useStatusPoller(baseDir, pollInterval);
 
-	useNotifications(groups, (config ?? DEFAULT_CONFIG).notifications);
+	const notifConfig = config?.notifications ?? DEFAULT_CONFIG.notifications;
+	useNotifications(groups, notifConfig);
 
 	const { activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay, error } =
 		useKeyboard({
@@ -67,6 +68,7 @@ export function Dashboard({
 							groups={groups}
 							activePanel={activePanel}
 							selectedGroupIndex={selectedGroupIndex}
+							selectedGroup={selectedGroup}
 							selectedIssueIndex={selectedIssueIndex}
 							activity={activity}
 						/>

@@ -29,7 +29,6 @@ export function DependencyGraphView({ groups }: DependencyGraphViewProps): React
 						group.step,
 					);
 					const connector = i < groups.length - 1 ? '├── ' : '└── ';
-					const pipe = i < groups.length - 1 ? '│' : ' ';
 
 					return (
 						<Box key={group.pr_group} flexDirection="column">
@@ -37,7 +36,7 @@ export function DependencyGraphView({ groups }: DependencyGraphViewProps): React
 								{connector}
 								{icon} {group.pr_group}
 							</Text>
-							{i < groups.length - 1 && <Text dimColor>{pipe}</Text>}
+							{i < groups.length - 1 && <Text dimColor>│</Text>}
 						</Box>
 					);
 				})}

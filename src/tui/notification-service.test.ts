@@ -43,13 +43,16 @@ describe('sendSystemNotification', () => {
 		stderrSpy.mockRestore();
 	});
 
-	it('escapes double quotes in messages for AppleScript', async () => {
+	it('passes message as osascript argv (no interpolation)', async () => {
 		mockExecFile.mockImplementation(() => undefined);
 		const result = await sendSystemNotification('test "quotes" & <brackets>');
 		expect(result).toBe(true);
 		const args = mockExecFile.mock.calls.at(-1) as unknown[];
 		const scriptArgs = args?.[1] as string[];
-		expect(scriptArgs[1]).toContain('test \\"quotes\\"');
+		// Message passed as separate argument, not interpolated into script
+		expect(scriptArgs).toContain('test "quotes" & <brackets>');
+		expect(scriptArgs[0]).toBe('-e');
+		expect(scriptArgs[1]).toContain('on run argv');
 	});
 });
 
@@ -57,14 +60,14 @@ describe('notify', () => {
 	it('calls sendSystemNotification when config.system is true', async () => {
 		mockExecFile.mockImplementation(() => undefined);
 		const config: NotificationConfig = { system: true };
-		await notify('test', 'warning', config);
+		await notify('test', config);
 		expect(mockExecFile).toHaveBeenCalled();
 	});
 
 	it('does NOT call sendSystemNotification when config.system is false', async () => {
 		mockExecFile.mockClear();
 		const config: NotificationConfig = { system: false };
-		await notify('test', 'warning', config);
+		await notify('test', config);
 		expect(mockExecFile).not.toHaveBeenCalled();
 	});
 });

@@ -47,6 +47,11 @@ export async function launchDashboard(baseDir = '.'): Promise<void> {
 
 		if (!request) break;
 
-		await spawnTakeover(request);
+		try {
+			await spawnTakeover(request);
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			process.stderr.write(`[takeover] ${msg}\n`);
+		}
 	}
 }

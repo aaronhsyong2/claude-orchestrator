@@ -94,7 +94,7 @@ async function main(): Promise<void> {
 			handleStatus();
 			break;
 		case 'dashboard':
-			launchDashboard();
+			await launchDashboard();
 			break;
 		default:
 			printUsage();

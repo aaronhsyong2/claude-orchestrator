@@ -52,6 +52,16 @@ describe('spawnTakeover', () => {
 		expect(mockSpawn).toHaveBeenCalledWith('/bin/sh', [], expect.any(Object));
 	});
 
+	it('falls back to /bin/sh when SHELL is not an absolute path', async () => {
+		vi.stubEnv('SHELL', 'bash');
+
+		const promise = spawnTakeover({ ...baseRequest, mode: 'shell' });
+		mockProc.emit('close', 0);
+		await promise;
+
+		expect(mockSpawn).toHaveBeenCalledWith('/bin/sh', [], expect.any(Object));
+	});
+
 	it('falls back to /bin/sh when SHELL is undefined', async () => {
 		const origShell = process.env.SHELL;
 		delete process.env.SHELL;
@@ -95,12 +105,11 @@ describe('spawnTakeover', () => {
 		expect(code).toBe(42);
 	});
 
-	it('resolves with 0 when close code is null', async () => {
+	it('rejects when close code is null (signal kill)', async () => {
 		const promise = spawnTakeover(baseRequest);
-		mockProc.emit('close', null);
-		const code = await promise;
+		mockProc.emit('close', null, 'SIGKILL');
 
-		expect(code).toBe(0);
+		await expect(promise).rejects.toThrow('shell process killed by signal SIGKILL');
 	});
 
 	it('rejects on spawn error', async () => {
