@@ -64,8 +64,13 @@ export function useStatusPoller(baseDir: string, intervalMs = 2000): StatusPolle
 				const entries: GroupStatus[] = [];
 
 				for (const slug of slugs) {
-					const status = readGroupStatus(slug, baseDir);
-					if (status) entries.push(status);
+					try {
+						const status = readGroupStatus(slug, baseDir);
+						if (status) entries.push(status);
+					} catch (slugErr: unknown) {
+						const detail = slugErr instanceof Error ? slugErr.message : String(slugErr);
+						process.stderr.write(`[status-poller] skipping ${slug}: ${detail}\n`);
+					}
 				}
 
 				const now = new Date().toISOString().slice(11, 16);
