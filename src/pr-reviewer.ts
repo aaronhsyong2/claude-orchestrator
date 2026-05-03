@@ -182,6 +182,8 @@ export async function prReview(
 				cycle,
 				`verification failed: ${verifyResult.failedStep}${verifyResult.error ? `\n\n${verifyResult.error}` : ''}`,
 			);
+			// Reset dirty tree so next cycle starts clean
+			await deps.execCommand('git', ['checkout', '--', '.'], worktreePath);
 			continue;
 		}
 

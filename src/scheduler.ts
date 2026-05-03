@@ -384,16 +384,6 @@ async function processGroup(
 			deps,
 		);
 
-		// Cleanup worktree regardless of result
-		try {
-			deps.removeWorktree(group.branch);
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			process.stderr.write(
-				`[scheduler] review worktree cleanup failed for ${group.branch}: ${message}\n`,
-			);
-		}
-
 		if (mergeResult === 'merged') {
 			return { completed: true };
 		}
@@ -412,8 +402,7 @@ async function processGroup(
 		});
 		notifySafe(deps, slug, reason, config);
 		return { completed: false, error: reason };
-	} catch (err) {
-		// Unexpected error during PR lifecycle — cleanup worktree
+	} finally {
 		try {
 			deps.removeWorktree(group.branch);
 		} catch (cleanupErr) {
@@ -422,7 +411,6 @@ async function processGroup(
 				`[scheduler] review worktree cleanup failed for ${group.branch}: ${message}\n`,
 			);
 		}
-		throw err;
 	}
 }
 
