@@ -5,7 +5,7 @@ tags:
   - pr-grouping
   - orchestrator
 created: 2026-05-02
-updated: 2026-05-02
+updated: 2026-05-03
 status: active
 related:
   - "[Parent Epic: #1](https://github.com/aaronhsyong2/claude-orchestrator/issues/1)"
@@ -54,13 +54,14 @@ Logical grouping of issues from the Claude Orchestrator epic (#1) into PRs, orde
 
 ## PR 4: Scheduler + E2E Integration
 
-**Branch:** `feat/scheduler-e2e-integration`
-**Status:** pending
+**Branch:** `feat/scheduler`
+**Status:** merged (PR #22)
+**Review:** [4 rounds, all issues resolved](../reviews/pr-022-scheduler-e2e.md)
 
 | Issue | Title | Status |
 |-------|-------|--------|
-| #9 | Scheduler: dependency-aware work assignment with concurrency cap | Open |
-| #10 | End-to-end single PR group flow (console output, no TUI) | Open |
+| #9 | Scheduler: dependency-aware work assignment with concurrency cap | Closed |
+| #10 | End-to-end single PR group flow (console output, no TUI) | Closed |
 
 > Depends on: PR 3
 

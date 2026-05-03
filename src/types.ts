@@ -80,7 +80,7 @@ export interface StatusEntry {
 	readonly issues_done: number;
 }
 
-export type GroupStep = 'idle' | 'cloning' | 'coding' | 'verifying' | 'reviewing' | 'merging';
+export type GroupStep = 'idle' | 'cloning' | 'coding' | 'verifying' | 'reviewing';
 
 export interface GroupStatus {
 	readonly pr_group: string;
@@ -90,8 +90,6 @@ export interface GroupStatus {
 	readonly step_result: string;
 	readonly issues_completed: readonly number[];
 	readonly issues_remaining: readonly number[];
-	readonly blocked: boolean;
-	readonly needs_input: boolean;
 	readonly last_updated: string;
 }
 
@@ -108,6 +106,39 @@ export interface ReconcileCorrection {
 export interface WorktreeInfo {
 	readonly branch: string;
 	readonly worktreePath: string;
+}
+
+// --- Scheduler types ---
+
+export interface SchedulerDeps {
+	readonly createWorktree: (branch: string, baseBranch?: string) => WorktreeInfo;
+	readonly removeWorktree: (branch: string) => void;
+	readonly spawnWorker: (
+		issue: string,
+		groupSlug: string,
+		worktreePath: string,
+		onEvent: (event: WorkerEvent) => void,
+		contextContent?: string,
+	) => WorkerHandle;
+	readonly killWorker: (pid: number) => Promise<void>;
+	readonly verify: (cwd: string, commands: readonly VerifyCommand[]) => Promise<VerifyResult>;
+	readonly readGroupStatus: (groupSlug: string) => GroupStatus | null;
+	readonly writeGroupStatus: (groupSlug: string, data: GroupStatus) => void;
+	readonly readContext: (groupSlug: string, issue: string) => string | null;
+	readonly deleteContext: (groupSlug: string, issue: string) => void;
+}
+
+export interface GroupResult {
+	readonly pr_number: number;
+	readonly branch: string;
+	readonly completed: boolean;
+	readonly failedIssue?: number;
+	readonly error?: string;
+}
+
+export interface AssignWorkResult {
+	readonly assigned: number;
+	readonly results: readonly GroupResult[];
 }
 
 // --- Worker Manager types ---
@@ -131,7 +162,11 @@ export interface NdjsonResultMessage {
 
 export type NdjsonMessage = NdjsonSystemMessage | NdjsonAssistantMessage | NdjsonResultMessage;
 
-export type WorkerEventType = 'spawned' | 'message' | 'error' | 'exited';
+export type WorkerEvent =
+	| { readonly event: 'spawned' }
+	| { readonly event: 'message'; readonly data: NdjsonMessage }
+	| { readonly event: 'error'; readonly data: Error }
+	| { readonly event: 'exited'; readonly data: number };
 
 export interface WorkerHandle {
 	readonly id: string;

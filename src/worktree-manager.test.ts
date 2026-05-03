@@ -78,7 +78,11 @@ describe('getWorktreePath', () => {
 	});
 
 	it('throws on branch name that produces empty slug', () => {
-		expect(() => getWorktreePath('...', tmpDir)).toThrow(/produces an empty slug/);
+		expect(() => getWorktreePath('///', tmpDir)).toThrow(/produces an empty slug/);
+	});
+
+	it('throws on branch name with consecutive dots', () => {
+		expect(() => getWorktreePath('a..b', tmpDir)).toThrow(/must not contain consecutive dots/);
 	});
 
 	it('documents slug collision: feat/my-branch and feat-my-branch produce same path', () => {
@@ -267,7 +271,7 @@ describe('create', () => {
 		});
 
 		expect(() => create('feat/new', 'nonexistent', tmpDir)).toThrow(
-			'Base branch "nonexistent" does not exist',
+			/Base branch "nonexistent" does not exist/,
 		);
 	});
 

@@ -2,22 +2,8 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadConfig } from './config.js';
+import { deriveSlug, validateBranchName } from './slug.js';
 import type { WorktreeInfo } from './types.js';
-
-const BRANCH_SLUG_RE = /[^a-z0-9-]/g;
-
-// Guard against git argument ambiguity: git interprets leading hyphens as flags
-// even when args are passed as an array via execFileSync (not a shell injection risk).
-// Path traversal (e.g. `../../../etc`) is safe because the slug derivation in
-// getWorktreePath strips dots and joins under the controlled worktree directory.
-function assertSafeBranchName(name: string): void {
-	if (!name) {
-		throw new Error('Branch name must not be empty');
-	}
-	if (name.startsWith('-')) {
-		throw new Error(`Invalid branch name "${name}" — must not start with a hyphen`);
-	}
-}
 
 function getGitErrorMessage(err: unknown): string {
 	if (err && typeof err === 'object' && 'stderr' in err) {
@@ -33,7 +19,7 @@ export function getWorktreeDir(baseDir?: string): string {
 }
 
 /**
- * Derives a deterministic filesystem-safe slug from a branch name.
+ * Derives worktree path from branch name using the shared slug derivation.
  *
  * NOTE: Distinct branch names can collide to the same slug (e.g. `feat/my-branch`
  * and `feat-my-branch` both become `feat-my-branch`). Callers of both `create`
@@ -41,32 +27,23 @@ export function getWorktreeDir(baseDir?: string): string {
  * slug-equivalent, and must pass the exact branch name used at creation time.
  */
 export function getWorktreePath(branch: string, baseDir?: string): string {
-	assertSafeBranchName(branch);
-	const slug = branch
-		.toLowerCase()
-		.replace(BRANCH_SLUG_RE, '-')
-		.replace(/^-+|-+$/g, '');
-	if (!slug) {
-		throw new Error(`Branch "${branch}" produces an empty slug`);
-	}
+	const slug = deriveSlug(branch);
 	return path.resolve(baseDir ?? '.', '.orchestrator/worktrees', slug);
 }
 
 export function exists(branch: string, baseDir?: string): boolean {
-	assertSafeBranchName(branch);
 	return fs.existsSync(getWorktreePath(branch, baseDir));
 }
 
 export function getPath(branch: string, baseDir?: string): string | null {
-	assertSafeBranchName(branch);
 	const wtPath = getWorktreePath(branch, baseDir);
 	return fs.existsSync(wtPath) ? wtPath : null;
 }
 
 export function create(branch: string, baseBranch?: string, baseDir?: string): WorktreeInfo {
-	assertSafeBranchName(branch);
+	deriveSlug(branch); // validates branch name (empty, leading hyphen, unsafe chars)
 	const resolvedBase = baseBranch ?? loadConfig(baseDir).base_branch;
-	assertSafeBranchName(resolvedBase);
+	validateBranchName(resolvedBase, 'Base branch');
 
 	const wtPath = getWorktreePath(branch, baseDir);
 	const repoDir = path.resolve(baseDir ?? '.');
@@ -85,8 +62,11 @@ export function create(branch: string, baseBranch?: string, baseDir?: string): W
 			cwd: repoDir,
 			stdio: 'pipe',
 		});
-	} catch {
-		throw new Error(`Base branch "${resolvedBase}" does not exist`);
+	} catch (err) {
+		const detail = getGitErrorMessage(err);
+		throw new Error(
+			`Base branch "${resolvedBase}" does not exist or could not be verified: ${detail}`,
+		);
 	}
 
 	try {
@@ -116,8 +96,6 @@ export function create(branch: string, baseBranch?: string, baseDir?: string): W
 }
 
 export function remove(branch: string, baseDir?: string): void {
-	assertSafeBranchName(branch);
-
 	const wtPath = getWorktreePath(branch, baseDir);
 	const repoDir = path.resolve(baseDir ?? '.');
 
