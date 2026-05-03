@@ -11,3 +11,4 @@
 
 ## Reviews
 - [PR #22: Scheduler + E2E Integration](reviews/pr-022-scheduler-e2e.md) — 2 review rounds, all issues resolved, 282 tests pass
+- [PR #23: TUI Dashboard](reviews/pr-023-tui-dashboard.md) — 4 review rounds, all critical/high resolved, 384 tests pass

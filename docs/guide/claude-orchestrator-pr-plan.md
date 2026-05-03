@@ -68,14 +68,15 @@ Logical grouping of issues from the Claude Orchestrator epic (#1) into PRs, orde
 ## PR 5: TUI Dashboard
 
 **Branch:** `feat/tui-dashboard`
-**Status:** pending
+**Status:** open (PR #23) — approved after 4 review cycles
+**Review:** [4 rounds, all critical/high issues resolved](../reviews/pr-023-tui-dashboard.md)
 
 | Issue | Title | Status |
 |-------|-------|--------|
-| #11 | TUI Dashboard: Lazygit-style layout with PR Groups, Issues, Activity panels | Open |
-| #12 | TUI Dashboard: navigation, keybindings, screen modes | Open |
-| #13 | Interactive takeover: Ink unmount/remount + neovim integration | Open |
-| #14 | Notification Service: TUI badge + macOS system notification | Open |
+| #11 | TUI Dashboard: Lazygit-style layout with PR Groups, Issues, Activity panels | Closed |
+| #12 | TUI Dashboard: navigation, keybindings, screen modes | Closed |
+| #13 | Interactive takeover: Ink unmount/remount + neovim integration | Closed |
+| #14 | Notification Service: TUI badge + macOS system notification | Closed |
 
 > Depends on: PR 2
 
