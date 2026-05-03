@@ -80,7 +80,15 @@ export interface StatusEntry {
 	readonly issues_done: number;
 }
 
-export type GroupStep = 'idle' | 'cloning' | 'coding' | 'verifying' | 'reviewing';
+export type GroupStep =
+	| 'idle'
+	| 'cloning'
+	| 'coding'
+	| 'verifying'
+	| 'reviewing'
+	| 'pr-creating'
+	| 'pr-reviewing'
+	| 'awaiting-merge';
 
 export interface GroupStatus {
 	readonly pr_group: string;
@@ -120,12 +128,22 @@ export interface SchedulerDeps {
 		onEvent: (event: WorkerEvent) => void,
 		contextContent?: string,
 	) => WorkerHandle;
+	readonly spawnDirectWorker: (
+		id: string,
+		groupSlug: string,
+		worktreePath: string,
+		onEvent: (event: WorkerEvent) => void,
+		prompt: string,
+	) => WorkerHandle;
 	readonly killWorker: (pid: number) => Promise<void>;
 	readonly verify: (cwd: string, commands: readonly VerifyCommand[]) => Promise<VerifyResult>;
 	readonly readGroupStatus: (groupSlug: string) => GroupStatus | null;
 	readonly writeGroupStatus: (groupSlug: string, data: GroupStatus) => void;
 	readonly readContext: (groupSlug: string, issue: string) => string | null;
+	readonly writeContext: (groupSlug: string, issue: string, content: string) => void;
 	readonly deleteContext: (groupSlug: string, issue: string) => void;
+	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
+	readonly notify: (message: string, config: NotificationConfig) => Promise<void>;
 }
 
 export interface GroupResult {
@@ -168,9 +186,94 @@ export type WorkerEvent =
 	| { readonly event: 'error'; readonly data: Error }
 	| { readonly event: 'exited'; readonly data: number };
 
+// --- Self-review types ---
+
+export type FindingSeverity = 'critical' | 'high' | 'medium' | 'low';
+
+export interface Finding {
+	readonly severity: FindingSeverity;
+	readonly file: string;
+	readonly description: string;
+}
+
+export interface ReviewResult {
+	readonly findings: readonly Finding[];
+	readonly approved: boolean;
+	readonly cycle: number;
+}
+
+/** Shared dependency interface for worker-capable modules (retry, self-review, PR review). */
+export interface WorkerCapableDeps {
+	readonly spawnWorker: (
+		issue: string,
+		groupSlug: string,
+		worktreePath: string,
+		onEvent: (event: WorkerEvent) => void,
+		contextContent?: string,
+	) => WorkerHandle;
+	readonly spawnDirectWorker: (
+		id: string,
+		groupSlug: string,
+		worktreePath: string,
+		onEvent: (event: WorkerEvent) => void,
+		prompt: string,
+	) => WorkerHandle;
+	readonly verify: (cwd: string, commands: readonly VerifyCommand[]) => Promise<VerifyResult>;
+	readonly readContext: (groupSlug: string, issue: string) => string | null;
+	readonly writeContext: (groupSlug: string, issue: string, content: string) => void;
+	readonly writeGroupStatus: (groupSlug: string, data: GroupStatus) => void;
+	readonly notify: (message: string, config: NotificationConfig) => Promise<void>;
+	readonly now?: () => string;
+}
+
+export interface SelfReviewDeps extends WorkerCapableDeps {
+	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
+}
+
 export interface WorkerHandle {
 	readonly id: string;
 	readonly issue: string;
 	readonly groupSlug: string;
 	readonly pid: number;
+}
+
+// --- Exec command types ---
+
+export interface ExecResult {
+	readonly exitCode: number;
+	readonly stdout: string;
+	readonly stderr: string;
+}
+
+// --- PR Review types ---
+
+export interface PRComment {
+	readonly file: string;
+	readonly line: number | null;
+	readonly body: string;
+	readonly severity: FindingSeverity;
+}
+
+export interface PRReviewResult {
+	readonly comments: readonly PRComment[];
+	readonly approved: boolean;
+	readonly cycle: number;
+}
+
+export interface PRReviewDeps extends WorkerCapableDeps {
+	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
+}
+
+// --- Merge Detector types ---
+
+export type MergeDetectorState = 'GITHUB_POLLING' | 'GIT_FALLBACK';
+
+export interface MergeDetectorDeps {
+	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
+}
+
+export type MergeDetectorResult = 'merged' | 'closed' | 'timeout';
+
+export interface MergeDetectorHandle {
+	readonly stop: () => void;
 }

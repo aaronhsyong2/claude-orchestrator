@@ -3,7 +3,16 @@ import * as path from 'node:path';
 import type { GitBranchState, GroupStatus, GroupStep, ReconcileCorrection } from './types.js';
 import { assertValidSlug } from './validation.js';
 
-const VALID_STEPS: readonly GroupStep[] = ['idle', 'cloning', 'coding', 'verifying', 'reviewing'];
+const VALID_STEPS: readonly GroupStep[] = [
+	'idle',
+	'cloning',
+	'coding',
+	'verifying',
+	'reviewing',
+	'pr-creating',
+	'pr-reviewing',
+	'awaiting-merge',
+];
 
 export function getGroupStatusPath(groupSlug: string, baseDir?: string): string {
 	return path.resolve(baseDir ?? '.', '.orchestrator/status', `${groupSlug}.json`);
@@ -89,7 +98,13 @@ export function readContext(groupSlug: string, issue: string, baseDir?: string):
 		return null;
 	}
 
-	return fs.readFileSync(filePath, 'utf-8');
+	try {
+		return fs.readFileSync(filePath, 'utf-8');
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		process.stderr.write(`Warning: failed to read context file ${filePath}: ${message}\n`);
+		return null;
+	}
 }
 
 export function deleteContext(groupSlug: string, issue: string, baseDir?: string): void {

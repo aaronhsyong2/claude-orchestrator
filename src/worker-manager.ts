@@ -70,26 +70,26 @@ export function parseNdjsonLine(line: string): NdjsonMessage | null {
 
 export type WorkerEventCallback = (event: WorkerEvent) => void;
 
-export function spawnWorker(
-	issue: string,
-	groupSlug: string,
-	worktreePath: string,
-	onEvent: WorkerEventCallback,
-	contextContent?: string,
-	baseDir?: string,
-): WorkerHandle {
-	assertValidSlug(groupSlug);
-	assertValidIssue(issue);
+// --- Shared spawn infrastructure ---
 
+function assertValidWorktreePath(worktreePath: string): void {
 	if (!worktreePath || !path.isAbsolute(worktreePath)) {
 		throw new Error(`worktreePath must be an absolute path, got: "${worktreePath}"`);
 	}
 	if (!fs.existsSync(worktreePath)) {
 		throw new Error(`worktreePath does not exist: "${worktreePath}"`);
 	}
+}
 
-	const prompt = buildPrompt(issue, contextContent);
-	const logPath = getLogPath(groupSlug, issue, baseDir);
+function spawnClaudeProcess(
+	id: string,
+	groupSlug: string,
+	worktreePath: string,
+	prompt: string,
+	onEvent: WorkerEventCallback,
+	baseDir?: string,
+): WorkerHandle {
+	const logPath = getLogPath(groupSlug, id, baseDir);
 	fs.mkdirSync(path.dirname(logPath), { recursive: true });
 	const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 	logStream.on('error', (err) => {
@@ -107,13 +107,12 @@ export function spawnWorker(
 	}
 
 	const handle: WorkerHandle = {
-		id: `${groupSlug}-${issue}`,
-		issue,
+		id: `${groupSlug}-${id}`,
+		issue: id,
 		groupSlug,
 		pid: proc.pid,
 	};
 
-	// Track whether we've already closed the log stream
 	let logClosed = false;
 	const closeLog = () => {
 		if (!logClosed) {
@@ -122,7 +121,6 @@ export function spawnWorker(
 		}
 	};
 
-	// Parse NDJSON from stdout
 	if (proc.stdout) {
 		const rl = readline.createInterface({ input: proc.stdout });
 		rl.on('line', (line) => {
@@ -132,46 +130,80 @@ export function spawnWorker(
 				onEvent({ event: 'message', data: msg });
 			} else if (line.trim()) {
 				process.stderr.write(
-					`[worker-manager] unparseable NDJSON for ${groupSlug}/${issue}: ${line.slice(0, 120)}\n`,
+					`[worker-manager] unparseable NDJSON for ${groupSlug}/${id}: ${line.slice(0, 120)}\n`,
 				);
 			}
 		});
 		rl.on('error', (err) => {
 			process.stderr.write(
-				`[worker-manager] readline error for ${groupSlug}/${issue}: ${err.message}\n`,
+				`[worker-manager] readline error for ${groupSlug}/${id}: ${err.message}\n`,
 			);
 			onEvent({ event: 'error', data: err });
 		});
 	}
 
-	// Capture stderr
 	if (proc.stderr) {
 		proc.stderr.on('data', (chunk: Buffer) => {
 			logStream.write(`[stderr] ${chunk.toString()}`);
 		});
 	}
 
-	// Handle spawn error (e.g., claude not in PATH)
 	proc.on('error', (err) => {
 		closeLog();
 		onEvent({ event: 'error', data: err });
 	});
 
-	// Handle exit — use 'close' to ensure streams are flushed
 	proc.on('close', (code, signal) => {
 		closeLog();
 		if (code === null && signal) {
 			process.stderr.write(
-				`[worker-manager] worker ${groupSlug}/${issue} terminated by signal ${signal}\n`,
+				`[worker-manager] worker ${groupSlug}/${id} terminated by signal ${signal}\n`,
 			);
 		}
 		onEvent({ event: 'exited', data: code ?? 1 });
 	});
 
-	// Defer spawned event so caller has the handle before any events fire
 	process.nextTick(() => onEvent({ event: 'spawned' }));
 	return handle;
 }
+
+// --- Public spawn functions ---
+
+export function spawnWorker(
+	issue: string,
+	groupSlug: string,
+	worktreePath: string,
+	onEvent: WorkerEventCallback,
+	contextContent?: string,
+	baseDir?: string,
+): WorkerHandle {
+	assertValidSlug(groupSlug);
+	assertValidIssue(issue);
+	assertValidWorktreePath(worktreePath);
+
+	const prompt = buildPrompt(issue, contextContent);
+	return spawnClaudeProcess(issue, groupSlug, worktreePath, prompt, onEvent, baseDir);
+}
+
+/**
+ * Spawn a Claude worker with a direct prompt (no /pick-up wrapping).
+ * Used for review and fix workers that don't correspond to a numeric issue.
+ */
+export function spawnDirectWorker(
+	id: string,
+	groupSlug: string,
+	worktreePath: string,
+	onEvent: WorkerEventCallback,
+	prompt: string,
+	baseDir?: string,
+): WorkerHandle {
+	assertValidSlug(groupSlug);
+	assertValidWorktreePath(worktreePath);
+
+	return spawnClaudeProcess(id, groupSlug, worktreePath, prompt, onEvent, baseDir);
+}
+
+// --- Kill ---
 
 export async function killWorker(pid: number): Promise<void> {
 	try {

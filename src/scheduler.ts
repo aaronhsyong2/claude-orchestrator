@@ -1,14 +1,24 @@
+import { startMergeDetector } from './merge-detector.js';
+import { buildPRBody, pushAndCreatePR } from './pr-creator.js';
+import { prReview } from './pr-reviewer.js';
+import { executeWithRetry } from './retry-coordinator.js';
+import { selfReview } from './self-reviewer.js';
 import { deriveSlug } from './slug.js';
 import type {
 	AssignWorkResult,
 	GroupStatus,
+	MergeDetectorDeps,
+	MergeDetectorResult,
 	OrchestratorConfig,
 	PlanData,
 	PRGroup,
 	SchedulerDeps,
-	WorkerEvent,
+	WorkerCapableDeps,
 	WorktreeInfo,
 } from './types.js';
+
+/** Default maximum wait for merge: 24 hours. */
+const DEFAULT_MERGE_WAIT_MS = 24 * 60 * 60 * 1000;
 
 export function getReadyGroups(plan: PlanData, mergedPRs: ReadonlySet<number>): readonly PRGroup[] {
 	return plan.groups.filter((group) => {
@@ -28,6 +38,70 @@ function initGroupStatus(group: PRGroup, slug: string, now: () => string): Group
 		issues_remaining: group.issues.map((i) => i.number),
 		last_updated: now(),
 	};
+}
+
+/** Extract the common WorkerCapableDeps subset from SchedulerDeps. */
+function coreWorkerDeps(deps: SchedulerDeps, now?: () => string): WorkerCapableDeps {
+	return {
+		spawnWorker: deps.spawnWorker,
+		spawnDirectWorker: deps.spawnDirectWorker,
+		verify: deps.verify,
+		readContext: deps.readContext,
+		writeContext: deps.writeContext,
+		writeGroupStatus: deps.writeGroupStatus,
+		notify: deps.notify,
+		now,
+	};
+}
+
+/** Extract MergeDetectorDeps subset from SchedulerDeps. */
+function coreMergeDetectorDeps(deps: SchedulerDeps): MergeDetectorDeps {
+	return { execCommand: deps.execCommand };
+}
+
+/**
+ * Block until the merge detector completes (merged, closed, or timeout).
+ * Returns the completion result.
+ */
+function waitForMerge(
+	prNumber: number,
+	branch: string,
+	baseBranch: string,
+	cwd: string,
+	deps: SchedulerDeps,
+	maxWaitMs: number = DEFAULT_MERGE_WAIT_MS,
+): Promise<MergeDetectorResult> {
+	return new Promise<MergeDetectorResult>((resolve) => {
+		let resolved = false;
+		let handle: ReturnType<typeof startMergeDetector> | null = null;
+		handle = startMergeDetector(
+			prNumber,
+			branch,
+			baseBranch,
+			cwd,
+			(result) => {
+				if (!resolved) {
+					resolved = true;
+					handle?.stop();
+					resolve(result);
+				}
+			},
+			coreMergeDetectorDeps(deps),
+			{ maxWaitMs },
+		);
+	});
+}
+
+function notifySafe(
+	deps: SchedulerDeps,
+	slug: string,
+	message: string,
+	config: OrchestratorConfig,
+): void {
+	deps.notify(`${slug}: ${message}`, config.notifications).catch((err) => {
+		const msg = err instanceof Error ? err.message : String(err);
+		process.stderr.write(`[scheduler] notification failed: ${msg}\n`);
+	});
 }
 
 /** Wrap writeGroupStatus to prevent I/O errors from crashing the entire orchestration. */
@@ -84,8 +158,6 @@ async function processIssue(
 	}
 
 	try {
-		const contextContent = deps.readContext(slug, String(issueNumber)) ?? undefined;
-
 		// coding
 		safeWriteStatus(deps, slug, {
 			...freshStatus(slug, group, deps, now),
@@ -95,71 +167,24 @@ async function processIssue(
 			last_updated: now(),
 		});
 
-		// Spawn worker and wait for exit
-		let exitCode: number;
-		try {
-			exitCode = await new Promise<number>((resolve, reject) => {
-				try {
-					deps.spawnWorker(
-						String(issueNumber),
-						slug,
-						worktreeInfo.worktreePath,
-						(workerEvent: WorkerEvent) => {
-							if (workerEvent.event === 'exited') resolve(workerEvent.data);
-							if (workerEvent.event === 'error') reject(workerEvent.data);
-						},
-						contextContent,
-					);
-				} catch (err) {
-					reject(err);
-				}
-			});
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			safeWriteStatus(deps, slug, {
-				...freshStatus(slug, group, deps, now),
-				current_issue: issueNumber,
-				step: 'coding',
-				step_result: `worker error: ${message}`,
-				last_updated: now(),
-			});
-			return { success: false, error: `worker error: ${message}` };
+		const currentStatus = freshStatus(slug, group, deps, now);
+		const retryResult = await executeWithRetry(
+			issueNumber,
+			slug,
+			worktreeInfo.worktreePath,
+			currentStatus,
+			config,
+			coreWorkerDeps(deps, now),
+		);
+
+		if (!retryResult.success) {
+			return {
+				success: false,
+				error: retryResult.escalationReason ?? 'retry failed',
+			};
 		}
 
-		if (exitCode !== 0) {
-			safeWriteStatus(deps, slug, {
-				...freshStatus(slug, group, deps, now),
-				current_issue: issueNumber,
-				step: 'coding',
-				step_result: `worker exited with code ${exitCode}`,
-				last_updated: now(),
-			});
-			return { success: false, error: `worker exited with code ${exitCode}` };
-		}
-
-		// verifying
-		safeWriteStatus(deps, slug, {
-			...freshStatus(slug, group, deps, now),
-			current_issue: issueNumber,
-			step: 'verifying',
-			step_result: '',
-			last_updated: now(),
-		});
-
-		const verifyResult = await deps.verify(worktreeInfo.worktreePath, config.verify);
-
-		if (!verifyResult.success) {
-			safeWriteStatus(deps, slug, {
-				...freshStatus(slug, group, deps, now),
-				current_issue: issueNumber,
-				step: 'verifying',
-				step_result: `failed: ${verifyResult.failedStep}`,
-				last_updated: now(),
-			});
-			return { success: false, error: `verification failed at step: ${verifyResult.failedStep}` };
-		}
-
-		// Success — record completion first, then delete context
+		// Success — record completion, delete context
 		const updatedStatus = freshStatus(slug, group, deps, now);
 		safeWriteStatus(deps, slug, {
 			...updatedStatus,
@@ -227,16 +252,167 @@ async function processGroup(
 		}
 	}
 
-	// All issues complete — signal ready for review
-	const finalStatus = freshStatus(slug, group, deps, now);
+	// All issues complete — run self-review cycle
 	safeWriteStatus(deps, slug, {
-		...finalStatus,
+		...freshStatus(slug, group, deps, now),
 		step: 'reviewing',
-		step_result: 'ready for self-review',
+		step_result: 'self-review starting',
 		last_updated: now(),
 	});
 
-	return { completed: true };
+	// Create worktree for review phase (branch already has all committed work)
+	let reviewWorktree: WorktreeInfo;
+	try {
+		reviewWorktree = deps.createWorktree(group.branch, config.base_branch);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		safeWriteStatus(deps, slug, {
+			...freshStatus(slug, group, deps, now),
+			step: 'reviewing',
+			step_result: `worktree error: ${message}`,
+			last_updated: now(),
+		});
+		return { completed: false, error: `review worktree error: ${message}` };
+	}
+
+	try {
+		const reviewResult = await selfReview(
+			slug,
+			reviewWorktree.worktreePath,
+			freshStatus(slug, group, deps, now),
+			config,
+			{ ...coreWorkerDeps(deps, now), execCommand: deps.execCommand },
+		);
+
+		if (!reviewResult.approved) {
+			safeWriteStatus(deps, slug, {
+				...freshStatus(slug, group, deps, now),
+				step: 'idle',
+				step_result: 'needs-input',
+				last_updated: now(),
+			});
+			notifySafe(
+				deps,
+				slug,
+				`self-review found unresolved critical/high findings after ${reviewResult.cycle} cycle(s)`,
+				config,
+			);
+			return {
+				completed: false,
+				error: 'self-review: unresolved critical/high findings',
+			};
+		}
+
+		safeWriteStatus(deps, slug, {
+			...freshStatus(slug, group, deps, now),
+			step: 'pr-creating',
+			step_result: 'pushing branch',
+			last_updated: now(),
+		});
+
+		// --- PR Creation ---
+		let prNumber: number;
+		try {
+			const issuesCompleted = freshStatus(slug, group, deps, now).issues_completed;
+			const prResult = await pushAndCreatePR(
+				group.branch,
+				config.base_branch,
+				group.title,
+				buildPRBody(group.title, issuesCompleted),
+				reviewWorktree.worktreePath,
+				{ execCommand: deps.execCommand },
+			);
+			prNumber = prResult.prNumber;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			safeWriteStatus(deps, slug, {
+				...freshStatus(slug, group, deps, now),
+				step: 'pr-creating',
+				step_result: `failed: ${message}`,
+				last_updated: now(),
+			});
+			return { completed: false, error: `pr creation failed: ${message}` };
+		}
+
+		safeWriteStatus(deps, slug, {
+			...freshStatus(slug, group, deps, now),
+			step: 'pr-reviewing',
+			step_result: `PR #${prNumber} created`,
+			last_updated: now(),
+		});
+
+		// --- PR Review Loop ---
+		const prReviewResult = await prReview(
+			prNumber,
+			slug,
+			reviewWorktree.worktreePath,
+			freshStatus(slug, group, deps, now),
+			config,
+			{ ...coreWorkerDeps(deps, now), execCommand: deps.execCommand },
+		);
+
+		if (!prReviewResult.approved) {
+			safeWriteStatus(deps, slug, {
+				...freshStatus(slug, group, deps, now),
+				step: 'idle',
+				step_result: 'needs-input',
+				last_updated: now(),
+			});
+			notifySafe(
+				deps,
+				slug,
+				`PR #${prNumber} has unresolved comments after ${prReviewResult.cycle} cycle(s)`,
+				config,
+			);
+			return { completed: false, error: 'pr-review: unresolved comments' };
+		}
+
+		notifySafe(deps, slug, `PR #${prNumber} ready to merge`, config);
+
+		safeWriteStatus(deps, slug, {
+			...freshStatus(slug, group, deps, now),
+			step: 'awaiting-merge',
+			step_result: `PR #${prNumber} approved`,
+			last_updated: now(),
+		});
+
+		// --- Merge Detection ---
+		const mergeResult = await waitForMerge(
+			prNumber,
+			group.branch,
+			config.base_branch,
+			reviewWorktree.worktreePath,
+			deps,
+		);
+
+		if (mergeResult === 'merged') {
+			return { completed: true };
+		}
+
+		// CLOSED or timeout — escalate
+		const reason =
+			mergeResult === 'closed'
+				? `PR #${prNumber} was closed without merging`
+				: `PR #${prNumber} merge wait timed out`;
+
+		safeWriteStatus(deps, slug, {
+			...freshStatus(slug, group, deps, now),
+			step: 'idle',
+			step_result: 'needs-input',
+			last_updated: now(),
+		});
+		notifySafe(deps, slug, reason, config);
+		return { completed: false, error: reason };
+	} finally {
+		try {
+			deps.removeWorktree(group.branch);
+		} catch (cleanupErr) {
+			const message = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+			process.stderr.write(
+				`[scheduler] review worktree cleanup failed for ${group.branch}: ${message}\n`,
+			);
+		}
+	}
 }
 
 export async function assignWork(

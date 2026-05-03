@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { loadConfig as realLoadConfig } from './config.js';
 import { parsePlan as realParsePlan } from './parser.js';
 import { assignWork, getReadyGroups } from './scheduler.js';
@@ -5,17 +7,24 @@ import {
 	deleteContext as realDeleteContext,
 	readContext as realReadContext,
 	readGroupStatus as realReadGroupStatus,
+	writeContext as realWriteContext,
 	writeGroupStatus as realWriteGroupStatus,
 } from './status-manager.js';
+import { notify as realNotify } from './tui/notification-service.js';
 import type {
 	AssignWorkResult,
+	ExecResult,
 	GroupStatus,
 	OrchestratorConfig,
 	PlanData,
 	SchedulerDeps,
 } from './types.js';
 import { verify as realVerify } from './verification.js';
-import { killWorker as realKillWorker, spawnWorker as realSpawnWorker } from './worker-manager.js';
+import {
+	killWorker as realKillWorker,
+	spawnDirectWorker as realSpawnDirectWorker,
+	spawnWorker as realSpawnWorker,
+} from './worker-manager.js';
 import { create as realCreate, remove as realRemove } from './worktree-manager.js';
 
 export type ProgressCallback = (message: string) => void;
@@ -47,18 +56,38 @@ export async function orchestrate(
 	return assignWork(plan, mergedPRs, config, deps);
 }
 
+const execFileAsync = promisify(execFile);
+
+async function realExecCommand(
+	cmd: string,
+	args: readonly string[],
+	cwd: string,
+): Promise<ExecResult> {
+	try {
+		const { stdout, stderr } = await execFileAsync(cmd, [...args], { cwd });
+		return { exitCode: 0, stdout, stderr };
+	} catch (err: unknown) {
+		const e = err as { status?: number; code?: string | number; stdout?: string; stderr?: string };
+		const exitCode = e.status ?? (typeof e.code === 'number' ? e.code : 1);
+		return { exitCode, stdout: e.stdout ?? '', stderr: e.stderr ?? '' };
+	}
+}
+
 function buildRealDeps(): SchedulerDeps {
 	return {
-		createWorktree: (branch, baseBranch) => realCreate(branch, baseBranch),
-		removeWorktree: (branch) => realRemove(branch),
-		spawnWorker: (issue, groupSlug, worktreePath, onEvent, context) =>
-			realSpawnWorker(issue, groupSlug, worktreePath, onEvent, context),
+		createWorktree: realCreate,
+		removeWorktree: realRemove,
+		spawnWorker: realSpawnWorker,
+		spawnDirectWorker: realSpawnDirectWorker,
 		killWorker: realKillWorker,
-		verify: (cwd, commands) => realVerify(cwd, commands),
+		verify: realVerify,
 		readGroupStatus: realReadGroupStatus,
 		writeGroupStatus: realWriteGroupStatus,
 		readContext: realReadContext,
+		writeContext: realWriteContext,
 		deleteContext: realDeleteContext,
+		execCommand: realExecCommand,
+		notify: realNotify,
 	};
 }
 
@@ -91,6 +120,18 @@ function emitProgress(onProgress: ProgressCallback, data: GroupStatus): void {
 	}
 
 	if (data.step === 'reviewing') {
-		onProgress(`PR group ready for review: ${data.pr_group}`);
+		onProgress(`  PR group ${data.pr_group}: reviewing...`);
+	}
+
+	if (data.step === 'pr-creating') {
+		onProgress(`  PR group ${data.pr_group}: creating PR...`);
+	}
+
+	if (data.step === 'pr-reviewing') {
+		onProgress(`  PR group ${data.pr_group}: PR review — ${data.step_result}`);
+	}
+
+	if (data.step === 'awaiting-merge') {
+		onProgress(`  PR group ${data.pr_group}: awaiting merge`);
 	}
 }

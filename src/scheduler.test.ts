@@ -49,8 +49,32 @@ function createMockDeps(overrides?: Partial<SchedulerDeps>): SchedulerDeps {
 		removeWorktree: vi.fn(),
 		spawnWorker: vi.fn(
 			(_issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
-				process.nextTick(() => onEvent({ event: 'exited', data: 0 }));
+				process.nextTick(() => {
+					// Emit a result message so self-reviewer can capture output
+					onEvent({
+						event: 'message',
+						data: { type: 'result', result: '[]', is_error: false },
+					});
+					onEvent({ event: 'exited', data: 0 });
+				});
 				return { id: 'test-1', issue: '1', groupSlug: 'test', pid: 123 } satisfies WorkerHandle;
+			},
+		),
+		spawnDirectWorker: vi.fn(
+			(_id: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+				process.nextTick(() => {
+					onEvent({
+						event: 'message',
+						data: { type: 'result', result: '[]', is_error: false },
+					});
+					onEvent({ event: 'exited', data: 0 });
+				});
+				return {
+					id: 'test-direct',
+					issue: 'direct',
+					groupSlug: 'test',
+					pid: 124,
+				} satisfies WorkerHandle;
 			},
 		),
 		killWorker: vi.fn(async () => {}),
@@ -60,7 +84,32 @@ function createMockDeps(overrides?: Partial<SchedulerDeps>): SchedulerDeps {
 			statuses.set(slug, data);
 		}),
 		readContext: vi.fn(() => null),
+		writeContext: vi.fn(),
 		deleteContext: vi.fn(),
+		execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+			// gh pr view <branch> --json number,url → no existing PR
+			if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('number,url')) {
+				return { exitCode: 1, stdout: '', stderr: 'no PR found' };
+			}
+			// gh pr create → success
+			if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'create') {
+				return { exitCode: 0, stdout: 'https://github.com/org/repo/pull/1\n', stderr: '' };
+			}
+			// gh pr view <number> --json state → merged (for merge detector)
+			if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('state')) {
+				return { exitCode: 0, stdout: '{"state":"MERGED"}', stderr: '' };
+			}
+			// git push
+			if (cmd === 'git' && args[0] === 'push') {
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}
+			// git commit
+			if (cmd === 'git' && args[0] === 'commit') {
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}
+			return { exitCode: 0, stdout: '', stderr: '' };
+		}),
+		notify: vi.fn(async () => {}),
 		...overrides,
 	};
 }
@@ -160,7 +209,13 @@ describe('assignWork', () => {
 			spawnWorker: vi.fn(
 				(issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
 					spawnOrder.push(issue);
-					process.nextTick(() => onEvent({ event: 'exited', data: 0 }));
+					process.nextTick(() => {
+						onEvent({
+							event: 'message',
+							data: { type: 'result', result: '[]', is_error: false },
+						});
+						onEvent({ event: 'exited', data: 0 });
+					});
 					return { id: `test-${issue}`, issue, groupSlug: 'feat-multi', pid: 123 };
 				},
 			),
@@ -169,7 +224,8 @@ describe('assignWork', () => {
 		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
 
 		expect(result.results[0]?.completed).toBe(true);
-		expect(spawnOrder).toEqual(['10', '11', '12']);
+		// Issues 10, 11, 12 processed in order, then review-feat-multi for self-review
+		expect(spawnOrder.slice(0, 3)).toEqual(['10', '11', '12']);
 	});
 
 	it('stops on worker failure', async () => {
@@ -195,12 +251,12 @@ describe('assignWork', () => {
 
 		expect(result.results[0]?.completed).toBe(false);
 		expect(result.results[0]?.failedIssue).toBe(10);
-		expect(result.results[0]?.error).toContain('worker exited with code 1');
-		// Second issue should not have been attempted
-		expect(deps.spawnWorker).toHaveBeenCalledTimes(1);
+		expect(result.results[0]?.error).toContain('crashed 2 times consecutively');
+		// Crash escalation: retry once silently, escalate on second crash
+		expect(deps.spawnWorker).toHaveBeenCalledTimes(2);
 	});
 
-	it('stops on verification failure', async () => {
+	it('stops on verification failure after retries', async () => {
 		const group = makeGroup({ pr_number: 1, branch: 'feat/vfail' });
 		const deps = createMockDeps({
 			verify: vi.fn(async () => ({
@@ -214,7 +270,7 @@ describe('assignWork', () => {
 		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
 
 		expect(result.results[0]?.completed).toBe(false);
-		expect(result.results[0]?.error).toContain('verification failed at step: lint');
+		expect(result.results[0]?.error).toContain('max retries exhausted');
 	});
 
 	it('sets step to reviewing when all issues complete', async () => {
@@ -225,8 +281,7 @@ describe('assignWork', () => {
 
 		const writeStatusMock = vi.mocked(deps.writeGroupStatus);
 		const lastCall = writeStatusMock.mock.calls[writeStatusMock.mock.calls.length - 1];
-		expect(lastCall?.[1].step).toBe('reviewing');
-		expect(lastCall?.[1].step_result).toBe('ready for self-review');
+		expect(lastCall?.[1].step).toBe('awaiting-merge');
 	});
 
 	it('respects max_concurrent_agents cap', async () => {
@@ -282,8 +337,22 @@ describe('assignWork', () => {
 
 		const writeStatusMock = vi.mocked(deps.writeGroupStatus);
 		const steps = writeStatusMock.mock.calls.map((call) => call[1].step);
-		// init(idle) → cloning → coding → verifying → idle(pass) → reviewing
-		expect(steps).toEqual(['idle', 'cloning', 'coding', 'verifying', 'idle', 'reviewing']);
+		// init(idle) → cloning → coding → verifying → idle(pass)
+		// → reviewing(self-review starting) → reviewing(review cycle 1) → reviewing(self-review passed)
+		// → pr-creating → pr-reviewing → pr-reviewing(PR review cycle 1) → awaiting-merge
+		expect(steps).toEqual([
+			'idle',
+			'cloning',
+			'coding',
+			'verifying',
+			'idle',
+			'reviewing',
+			'reviewing',
+			'pr-creating',
+			'pr-reviewing',
+			'pr-reviewing',
+			'awaiting-merge',
+		]);
 	});
 
 	it('passes context from previous attempt to worker', async () => {
@@ -415,7 +484,13 @@ describe('assignWork', () => {
 			spawnWorker: vi.fn(
 				(issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
 					spawnOrder.push(issue);
-					process.nextTick(() => onEvent({ event: 'exited', data: 0 }));
+					process.nextTick(() => {
+						onEvent({
+							event: 'message',
+							data: { type: 'result', result: '[]', is_error: false },
+						});
+						onEvent({ event: 'exited', data: 0 });
+					});
 					return { id: `test-${issue}`, issue, groupSlug: 'feat-resume', pid: 123 };
 				},
 			),
@@ -425,7 +500,8 @@ describe('assignWork', () => {
 
 		expect(result.results[0]?.completed).toBe(true);
 		// Only issues 11 and 12 should be processed — issue 10 was already done
-		expect(spawnOrder).toEqual(['11', '12']);
+		// Then review-feat-resume for self-review
+		expect(spawnOrder.slice(0, 2)).toEqual(['11', '12']);
 	});
 
 	it('detects slug collision and throws', async () => {
@@ -471,7 +547,7 @@ describe('assignWork', () => {
 		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
 
 		expect(result.results[0]?.completed).toBe(false);
-		expect(result.results[0]?.error).toContain('spawn claude ENOENT');
+		expect(result.results[0]?.error).toContain('crashed 2 times consecutively');
 	});
 
 	it('handles invalid branch name gracefully', async () => {
@@ -491,7 +567,8 @@ describe('assignWork', () => {
 		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
 
 		expect(result.results[0]?.completed).toBe(true);
-		expect(deps.spawnWorker).not.toHaveBeenCalled();
+		// spawnDirectWorker is called for self-review + PR review (no issue spawns)
+		expect(deps.spawnDirectWorker).toHaveBeenCalledTimes(2);
 	});
 });
 
