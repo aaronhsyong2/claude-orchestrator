@@ -2,11 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { orchestrate } from './orchestrate.js';
 import type {
 	GroupStatus,
-	NdjsonMessage,
 	OrchestratorConfig,
 	PlanData,
 	SchedulerDeps,
-	WorkerEventType,
+	WorkerEvent,
 } from './types.js';
 
 const TEST_CONFIG: OrchestratorConfig = {
@@ -66,14 +65,9 @@ function buildMockDeps(
 		spawnWorker: vi
 			.fn()
 			.mockImplementation(
-				(
-					_issue: string,
-					_slug: string,
-					_path: string,
-					onEvent: (event: WorkerEventType, data: NdjsonMessage | number | Error) => void,
-				) => {
-					process.nextTick(() => onEvent('spawned', 0));
-					process.nextTick(() => onEvent('exited', workerExitCode));
+				(_issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+					process.nextTick(() => onEvent({ event: 'spawned' }));
+					process.nextTick(() => onEvent({ event: 'exited', data: workerExitCode }));
 					return { id: `mock-${_issue}`, issue: _issue, groupSlug: _slug, pid: 999 };
 				},
 			),
@@ -110,6 +104,7 @@ describe('orchestrate', () => {
 		expect(result.results[0].completed).toBe(true);
 
 		expect(progress).toContain('Starting PR 1: Type Cleanup [feat/type-cleanup]');
+		expect(progress).toContain('  Issue #30: cloning...');
 		expect(progress).toContain('  Issue #30: implementing...');
 		expect(progress).toContain('  Issue #30: verifying...');
 		expect(progress).toContain('  Issue #30: done');
@@ -187,6 +182,28 @@ describe('orchestrate', () => {
 
 		expect(progress).toContain('Starting PR 1: First [feat/first]');
 		expect(progress).not.toContain('Starting PR 2: Second [feat/second]');
+	});
+
+	it('only emits Starting for groups within concurrency cap', async () => {
+		const plan = makePlan([
+			makeGroup({ pr_number: 1, title: 'A', branch: 'feat/a', depends_on: [] }),
+			makeGroup({ pr_number: 2, title: 'B', branch: 'feat/b', depends_on: [] }),
+			makeGroup({ pr_number: 3, title: 'C', branch: 'feat/c', depends_on: [] }),
+		]);
+		const progress: string[] = [];
+		const statusStore = createStatusStore();
+		const deps = buildMockDeps(statusStore);
+		const config = { ...TEST_CONFIG, max_concurrent_agents: 2 };
+
+		await orchestrate('plan.md', (msg) => progress.push(msg), {
+			loadConfig: () => config,
+			parsePlan: async () => plan,
+			deps,
+		});
+
+		expect(progress).toContain('Starting PR 1: A [feat/a]');
+		expect(progress).toContain('Starting PR 2: B [feat/b]');
+		expect(progress).not.toContain('Starting PR 3: C [feat/c]');
 	});
 
 	it('reports error on worker failure', async () => {

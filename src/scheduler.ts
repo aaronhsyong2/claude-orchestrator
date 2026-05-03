@@ -2,12 +2,11 @@ import { deriveSlug } from './slug.js';
 import type {
 	AssignWorkResult,
 	GroupStatus,
-	NdjsonMessage,
 	OrchestratorConfig,
 	PlanData,
 	PRGroup,
 	SchedulerDeps,
-	WorkerEventType,
+	WorkerEvent,
 	WorktreeInfo,
 } from './types.js';
 
@@ -27,8 +26,6 @@ function initGroupStatus(group: PRGroup, slug: string, now: () => string): Group
 		step_result: '',
 		issues_completed: [],
 		issues_remaining: group.issues.map((i) => i.number),
-		blocked: false,
-		needs_input: false,
 		last_updated: now(),
 	};
 }
@@ -38,8 +35,8 @@ function safeWriteStatus(deps: SchedulerDeps, slug: string, data: GroupStatus): 
 	try {
 		deps.writeGroupStatus(slug, data);
 	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		process.stderr.write(`[scheduler] status write failed for ${slug}: ${message}\n`);
+		const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+		process.stderr.write(`[scheduler] status write failed for ${slug}: ${detail}\n`);
 	}
 }
 
@@ -107,9 +104,9 @@ async function processIssue(
 						String(issueNumber),
 						slug,
 						worktreeInfo.worktreePath,
-						(event: WorkerEventType, data: NdjsonMessage | number | Error) => {
-							if (event === 'exited') resolve(data as number);
-							if (event === 'error') reject(data as Error);
+						(workerEvent: WorkerEvent) => {
+							if (workerEvent.event === 'exited') resolve(workerEvent.data);
+							if (workerEvent.event === 'error') reject(workerEvent.data);
 						},
 						contextContent,
 					);
@@ -177,11 +174,11 @@ async function processIssue(
 
 		return { success: true };
 	} finally {
-		// Clean up worktree after issue processing (only reached if createWorktree succeeded)
 		try {
 			deps.removeWorktree(group.branch);
-		} catch {
-			// Non-fatal: worktree cleanup failure should not mask the actual result
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			process.stderr.write(`[scheduler] worktree cleanup failed for ${group.branch}: ${message}\n`);
 		}
 	}
 }
@@ -248,10 +245,20 @@ export async function assignWork(
 		return { assigned: 0, results: [] };
 	}
 
-	// Concurrency model: up to max_concurrent_agents groups run in parallel.
-	// Each group processes its issues serially (one worker at a time per group).
-	// Total active workers = number of groups assigned, not max_concurrent_agents.
 	const toAssign = ready.slice(0, config.max_concurrent_agents);
+
+	// Guard against slug collisions — two branches mapping to the same slug
+	// would corrupt each other's status files when processed concurrently.
+	const slugSet = new Set<string>();
+	for (const group of toAssign) {
+		const slug = deriveSlug(group.branch);
+		if (slugSet.has(slug)) {
+			throw new Error(
+				`Slug collision: multiple groups resolve to "${slug}" — disambiguate branch names`,
+			);
+		}
+		slugSet.add(slug);
+	}
 
 	const settled = await Promise.allSettled(
 		toAssign.map((group) => processGroup(group, config, deps, now)),
@@ -264,7 +271,11 @@ export async function assignWork(
 			const result =
 				outcome.status === 'fulfilled'
 					? outcome.value
-					: { completed: false, error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason) };
+					: {
+							completed: false,
+							error:
+								outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
+						};
 			return {
 				pr_number: group.pr_number,
 				branch: group.branch,

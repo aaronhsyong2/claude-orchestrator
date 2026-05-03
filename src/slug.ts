@@ -15,7 +15,9 @@ export function validateBranchName(name: string, label = 'Branch'): void {
 		throw new Error(`Invalid ${label.toLowerCase()} name "${name}" — contains unsafe characters`);
 	}
 	if (/\.\./.test(name)) {
-		throw new Error(`Invalid ${label.toLowerCase()} name "${name}" — must not contain consecutive dots`);
+		throw new Error(
+			`Invalid ${label.toLowerCase()} name "${name}" — must not contain consecutive dots`,
+		);
 	}
 }
 

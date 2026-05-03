@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { NdjsonMessage, WorkerEventType } from './types.js';
+import type { NdjsonMessage, WorkerEvent } from './types.js';
 import {
 	buildPrompt,
 	getLogDir,
@@ -172,10 +172,7 @@ describe('parseNdjsonLine', () => {
 });
 
 describe('spawnWorker', () => {
-	type EventEntry = {
-		event: WorkerEventType;
-		data: NdjsonMessage | number | Error;
-	};
+	type EventEntry = WorkerEvent;
 
 	let activeProc: FakeProc | null = null;
 
@@ -191,8 +188,7 @@ describe('spawnWorker', () => {
 
 	function collect() {
 		const events: EventEntry[] = [];
-		const cb = (e: WorkerEventType, d: NdjsonMessage | number | Error) =>
-			events.push({ event: e, data: d });
+		const cb = (e: WorkerEvent) => events.push(e);
 		return { events, cb };
 	}
 
@@ -271,7 +267,7 @@ describe('spawnWorker', () => {
 
 		// spawned is deferred via process.nextTick
 		await new Promise((r) => process.nextTick(r));
-		expect(events[0]).toEqual({ event: 'spawned', data: 0 });
+		expect(events[0]).toEqual({ event: 'spawned' });
 	});
 
 	it('returns correct WorkerHandle', () => {

@@ -7,7 +7,7 @@ import type {
 	NdjsonMessage,
 	NdjsonResultMessage,
 	NdjsonSystemMessage,
-	WorkerEventType,
+	WorkerEvent,
 	WorkerHandle,
 } from './types.js';
 import { assertValidIssue, assertValidSlug } from './validation.js';
@@ -68,10 +68,7 @@ export function parseNdjsonLine(line: string): NdjsonMessage | null {
 	}
 }
 
-export type WorkerEventCallback = (
-	event: WorkerEventType,
-	data: NdjsonMessage | number | Error,
-) => void;
+export type WorkerEventCallback = (event: WorkerEvent) => void;
 
 export function spawnWorker(
 	issue: string,
@@ -132,7 +129,7 @@ export function spawnWorker(
 			logStream.write(`${line}\n`);
 			const msg = parseNdjsonLine(line);
 			if (msg) {
-				onEvent('message', msg);
+				onEvent({ event: 'message', data: msg });
 			} else if (line.trim()) {
 				process.stderr.write(
 					`[worker-manager] unparseable NDJSON for ${groupSlug}/${issue}: ${line.slice(0, 120)}\n`,
@@ -143,7 +140,7 @@ export function spawnWorker(
 			process.stderr.write(
 				`[worker-manager] readline error for ${groupSlug}/${issue}: ${err.message}\n`,
 			);
-			onEvent('error', err);
+			onEvent({ event: 'error', data: err });
 		});
 	}
 
@@ -157,7 +154,7 @@ export function spawnWorker(
 	// Handle spawn error (e.g., claude not in PATH)
 	proc.on('error', (err) => {
 		closeLog();
-		onEvent('error', err);
+		onEvent({ event: 'error', data: err });
 	});
 
 	// Handle exit — use 'close' to ensure streams are flushed
@@ -168,11 +165,11 @@ export function spawnWorker(
 				`[worker-manager] worker ${groupSlug}/${issue} terminated by signal ${signal}\n`,
 			);
 		}
-		onEvent('exited', code ?? 1);
+		onEvent({ event: 'exited', data: code ?? 1 });
 	});
 
 	// Defer spawned event so caller has the handle before any events fire
-	process.nextTick(() => onEvent('spawned', 0));
+	process.nextTick(() => onEvent({ event: 'spawned' }));
 	return handle;
 }
 

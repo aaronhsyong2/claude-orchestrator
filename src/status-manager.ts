@@ -3,14 +3,7 @@ import * as path from 'node:path';
 import type { GitBranchState, GroupStatus, GroupStep, ReconcileCorrection } from './types.js';
 import { assertValidSlug } from './validation.js';
 
-const VALID_STEPS: readonly GroupStep[] = [
-	'idle',
-	'cloning',
-	'coding',
-	'verifying',
-	'reviewing',
-	'merging',
-];
+const VALID_STEPS: readonly GroupStep[] = ['idle', 'cloning', 'coding', 'verifying', 'reviewing'];
 
 export function getGroupStatusPath(groupSlug: string, baseDir?: string): string {
 	return path.resolve(baseDir ?? '.', '.orchestrator/status', `${groupSlug}.json`);
@@ -32,8 +25,6 @@ function isValidGroupStatus(value: unknown): value is GroupStatus {
 		typeof obj.step_result === 'string' &&
 		Array.isArray(obj.issues_completed) &&
 		Array.isArray(obj.issues_remaining) &&
-		typeof obj.blocked === 'boolean' &&
-		typeof obj.needs_input === 'boolean' &&
 		typeof obj.last_updated === 'string'
 	);
 }

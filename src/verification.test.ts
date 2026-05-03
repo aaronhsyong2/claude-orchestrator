@@ -117,6 +117,22 @@ describe('verify', () => {
 		expect(result.steps[0]?.stderr).toContain('command not found');
 	});
 
+	it('produces helpful error when ENOENT has empty stderr', async () => {
+		execFileMock.mockImplementation((_file, _args, _opts, callback) => {
+			const err = new Error('spawn missing ENOENT') as NodeJS.ErrnoException;
+			err.code = 'ENOENT';
+			(callback as ExecFileCallback)(err, '', '');
+			return {} as childProcess.ChildProcess;
+		});
+
+		const result = await verify('/repo', [{ name: 'missing', command: 'missing-binary arg1' }]);
+
+		expect(result.success).toBe(false);
+		expect(result.failedStep).toBe('missing');
+		expect(result.steps[0]?.exitCode).toBe(127);
+		expect(result.steps[0]?.stderr).toBe('Command not found: missing-binary');
+	});
+
 	it('passes cwd and timeout to execFile', async () => {
 		mockExecFileSequence([{ exitCode: 0, stdout: '', stderr: '' }]);
 

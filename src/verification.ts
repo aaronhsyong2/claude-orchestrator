@@ -12,10 +12,30 @@ const SAFE_COMMAND_RE = /^[a-zA-Z0-9 _\-./=,@]+$/;
 
 /** Executables that delegate to a shell — block these as the first token in verify commands. */
 const SHELL_EXECUTABLES = new Set([
-	'sh', 'bash', 'zsh', 'ksh', 'csh', 'tcsh', 'fish', 'dash',
-	'python', 'python3', 'ruby', 'perl', 'node', 'bun', 'deno', 'tsx', 'ts-node',
-	'env', 'xargs', 'lua', 'awk',
-	'/bin/sh', '/bin/bash', '/usr/bin/env',
+	'sh',
+	'bash',
+	'zsh',
+	'ksh',
+	'csh',
+	'tcsh',
+	'fish',
+	'dash',
+	'python',
+	'python3',
+	'ruby',
+	'perl',
+	'node',
+	'bun',
+	'deno',
+	'tsx',
+	'ts-node',
+	'env',
+	'xargs',
+	'lua',
+	'awk',
+	'/bin/sh',
+	'/bin/bash',
+	'/usr/bin/env',
 ]);
 
 /**
@@ -35,9 +55,7 @@ export async function verify(
 
 	for (const cmd of commands) {
 		if (!SAFE_COMMAND_RE.test(cmd.command)) {
-			throw new Error(
-				`Verify command "${cmd.name}" contains unsafe characters: "${cmd.command}"`,
-			);
+			throw new Error(`Verify command "${cmd.name}" contains unsafe characters: "${cmd.command}"`);
 		}
 
 		const parsed = splitCommand(cmd.command);
@@ -87,6 +105,7 @@ function runStep(
 			const duration = Date.now() - start;
 
 			let exitCode = 0;
+			let resolvedStderr = stderr ?? '';
 			if (error) {
 				const errObj = error as NodeJS.ErrnoException & {
 					status?: number;
@@ -94,6 +113,11 @@ function runStep(
 				};
 				if (errObj.killed) {
 					exitCode = TIMEOUT_EXIT_CODE;
+				} else if (errObj.code === 'ENOENT') {
+					exitCode = 127;
+					if (!resolvedStderr) {
+						resolvedStderr = `Command not found: ${file}`;
+					}
 				} else {
 					exitCode = errObj.status ?? 1;
 				}
@@ -105,7 +129,7 @@ function runStep(
 				exitCode,
 				duration,
 				stdout: stdout ?? '',
-				stderr: stderr ?? '',
+				stderr: resolvedStderr,
 			});
 		});
 	});

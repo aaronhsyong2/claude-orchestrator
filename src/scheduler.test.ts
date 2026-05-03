@@ -2,12 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { assignWork, getReadyGroups, onMerge } from './scheduler.js';
 import type {
 	GroupStatus,
-	NdjsonMessage,
 	OrchestratorConfig,
 	PlanData,
 	PRGroup,
 	SchedulerDeps,
-	WorkerEventType,
+	WorkerEvent,
 	WorkerHandle,
 } from './types.js';
 
@@ -49,13 +48,8 @@ function createMockDeps(overrides?: Partial<SchedulerDeps>): SchedulerDeps {
 		createWorktree: vi.fn(() => ({ branch: 'feat/test', worktreePath: '/tmp/wt' })),
 		removeWorktree: vi.fn(),
 		spawnWorker: vi.fn(
-			(
-				_issue: string,
-				_slug: string,
-				_path: string,
-				onEvent: (event: WorkerEventType, data: NdjsonMessage | number | Error) => void,
-			) => {
-				process.nextTick(() => onEvent('exited', 0));
+			(_issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+				process.nextTick(() => onEvent({ event: 'exited', data: 0 }));
 				return { id: 'test-1', issue: '1', groupSlug: 'test', pid: 123 } satisfies WorkerHandle;
 			},
 		),
@@ -164,14 +158,9 @@ describe('assignWork', () => {
 
 		const deps = createMockDeps({
 			spawnWorker: vi.fn(
-				(
-					issue: string,
-					_slug: string,
-					_path: string,
-					onEvent: (event: WorkerEventType, data: NdjsonMessage | number | Error) => void,
-				) => {
+				(issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
 					spawnOrder.push(issue);
-					process.nextTick(() => onEvent('exited', 0));
+					process.nextTick(() => onEvent({ event: 'exited', data: 0 }));
 					return { id: `test-${issue}`, issue, groupSlug: 'feat-multi', pid: 123 };
 				},
 			),
@@ -195,13 +184,8 @@ describe('assignWork', () => {
 
 		const deps = createMockDeps({
 			spawnWorker: vi.fn(
-				(
-					_issue: string,
-					_slug: string,
-					_path: string,
-					onEvent: (event: WorkerEventType, data: NdjsonMessage | number | Error) => void,
-				) => {
-					process.nextTick(() => onEvent('exited', 1));
+				(_issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+					process.nextTick(() => onEvent({ event: 'exited', data: 1 }));
 					return { id: 'test-1', issue: '10', groupSlug: 'feat-fail', pid: 123 };
 				},
 			),
@@ -332,13 +316,8 @@ describe('assignWork', () => {
 		const group = makeGroup({ pr_number: 1, branch: 'feat/nodel' });
 		const deps = createMockDeps({
 			spawnWorker: vi.fn(
-				(
-					_issue: string,
-					_slug: string,
-					_path: string,
-					onEvent: (event: WorkerEventType, data: NdjsonMessage | number | Error) => void,
-				) => {
-					process.nextTick(() => onEvent('exited', 1));
+				(_issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+					process.nextTick(() => onEvent({ event: 'exited', data: 1 }));
 					return { id: 'test-1', issue: '10', groupSlug: 'test', pid: 123 };
 				},
 			),
@@ -347,6 +326,118 @@ describe('assignWork', () => {
 		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
 
 		expect(deps.deleteContext).not.toHaveBeenCalled();
+	});
+
+	it('calls removeWorktree after successful issue processing', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/cleanup' });
+		const deps = createMockDeps();
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(deps.removeWorktree).toHaveBeenCalledWith('feat/cleanup');
+	});
+
+	it('calls removeWorktree even after worker failure', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/cleanup-fail' });
+		const deps = createMockDeps({
+			spawnWorker: vi.fn(
+				(_issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+					process.nextTick(() => onEvent({ event: 'exited', data: 1 }));
+					return { id: 'test-1', issue: '10', groupSlug: 'test', pid: 123 };
+				},
+			),
+		});
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(deps.removeWorktree).toHaveBeenCalledWith('feat/cleanup-fail');
+	});
+
+	it('calls removeWorktree even after verification failure', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/cleanup-vfail' });
+		const deps = createMockDeps({
+			verify: vi.fn(async () => ({
+				success: false as const,
+				failedStep: 'lint',
+				error: 'lint errors',
+				steps: [],
+			})),
+		});
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(deps.removeWorktree).toHaveBeenCalledWith('feat/cleanup-vfail');
+	});
+
+	it('does not call removeWorktree when createWorktree fails', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/no-cleanup' });
+		const deps = createMockDeps({
+			createWorktree: vi.fn(() => {
+				throw new Error('Disk full');
+			}),
+		});
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(deps.removeWorktree).not.toHaveBeenCalled();
+	});
+
+	it('resumes from persisted status skipping completed issues', async () => {
+		const spawnOrder: string[] = [];
+		const group = makeGroup({
+			pr_number: 1,
+			branch: 'feat/resume',
+			issues: [
+				{ number: 10, title: 'First', status: 'Open', blocked_by: [] },
+				{ number: 11, title: 'Second', status: 'Open', blocked_by: [] },
+				{ number: 12, title: 'Third', status: 'Open', blocked_by: [] },
+			],
+		});
+
+		const statuses = new Map<string, GroupStatus>();
+		// Pre-seed: issue 10 already completed
+		statuses.set('feat-resume', {
+			pr_group: 'feat-resume',
+			branch: 'feat/resume',
+			current_issue: null,
+			step: 'idle',
+			step_result: 'pass',
+			issues_completed: [10],
+			issues_remaining: [11, 12],
+			last_updated: NOW,
+		});
+
+		const deps = createMockDeps({
+			readGroupStatus: vi.fn((slug: string) => statuses.get(slug) ?? null),
+			writeGroupStatus: vi.fn((slug: string, data: GroupStatus) => {
+				statuses.set(slug, data);
+			}),
+			spawnWorker: vi.fn(
+				(issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+					spawnOrder.push(issue);
+					process.nextTick(() => onEvent({ event: 'exited', data: 0 }));
+					return { id: `test-${issue}`, issue, groupSlug: 'feat-resume', pid: 123 };
+				},
+			),
+		});
+
+		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(result.results[0]?.completed).toBe(true);
+		// Only issues 11 and 12 should be processed — issue 10 was already done
+		expect(spawnOrder).toEqual(['11', '12']);
+	});
+
+	it('detects slug collision and throws', async () => {
+		const groups = [
+			makeGroup({ pr_number: 1, branch: 'feat/my-branch' }),
+			makeGroup({ pr_number: 2, branch: 'feat-my-branch' }),
+		];
+		const deps = createMockDeps();
+
+		await expect(assignWork(makePlan(groups), new Set(), BASE_CONFIG, deps, now)).rejects.toThrow(
+			/Slug collision/,
+		);
 	});
 
 	it('handles createWorktree failure gracefully', async () => {
@@ -368,13 +459,10 @@ describe('assignWork', () => {
 		const group = makeGroup({ pr_number: 1, branch: 'feat/werr' });
 		const deps = createMockDeps({
 			spawnWorker: vi.fn(
-				(
-					_issue: string,
-					_slug: string,
-					_path: string,
-					onEvent: (event: WorkerEventType, data: NdjsonMessage | number | Error) => void,
-				) => {
-					process.nextTick(() => onEvent('error', new Error('spawn claude ENOENT')));
+				(_issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+					process.nextTick(() =>
+						onEvent({ event: 'error', data: new Error('spawn claude ENOENT') }),
+					);
 					return { id: 'test-1', issue: '10', groupSlug: 'test', pid: 123 };
 				},
 			),
@@ -390,10 +478,9 @@ describe('assignWork', () => {
 		const group = makeGroup({ pr_number: 1, branch: '' });
 		const deps = createMockDeps();
 
-		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
-
-		expect(result.results[0]?.completed).toBe(false);
-		expect(result.results[0]?.error).toContain('invalid branch name');
+		await expect(assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now)).rejects.toThrow(
+			/must not be empty/,
+		);
 		expect(deps.createWorktree).not.toHaveBeenCalled();
 	});
 

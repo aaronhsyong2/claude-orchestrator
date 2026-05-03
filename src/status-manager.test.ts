@@ -33,8 +33,6 @@ function makeStatus(overrides?: Partial<GroupStatus>): GroupStatus {
 		step_result: '',
 		issues_completed: [9],
 		issues_remaining: [10, 11],
-		blocked: false,
-		needs_input: false,
 		last_updated: '2026-05-02T12:00:00.000Z',
 		...overrides,
 	};

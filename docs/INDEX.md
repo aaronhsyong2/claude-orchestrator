@@ -10,4 +10,4 @@
 - [ADR 001: Core Design Decisions](decisions/001-design-decisions.md) — 26 locked design decisions from grill-me session
 
 ## Reviews
-- [PR #22: Scheduler + E2E Integration](reviews/pr-022-scheduler-e2e.md) — 5 HIGH, 5 MEDIUM, 5 LOW findings across 6 automated review agents
+- [PR #22: Scheduler + E2E Integration](reviews/pr-022-scheduler-e2e.md) — 2 review rounds, all issues resolved, 282 tests pass

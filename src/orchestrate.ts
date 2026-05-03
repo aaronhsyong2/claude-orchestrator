@@ -39,7 +39,8 @@ export async function orchestrate(
 	const mergedPRs = new Set<number>();
 
 	const ready = getReadyGroups(plan, mergedPRs);
-	for (const group of ready) {
+	const capped = ready.slice(0, config.max_concurrent_agents);
+	for (const group of capped) {
 		onProgress(`Starting PR ${group.pr_number}: ${group.title} [${group.branch}]`);
 	}
 
@@ -73,7 +74,9 @@ function wrapWithProgress(deps: SchedulerDeps, onProgress: ProgressCallback): Sc
 
 function emitProgress(onProgress: ProgressCallback, data: GroupStatus): void {
 	if (data.current_issue !== null) {
-		if (data.step === 'coding') {
+		if (data.step === 'cloning') {
+			onProgress(`  Issue #${data.current_issue}: cloning...`);
+		} else if (data.step === 'coding') {
 			onProgress(`  Issue #${data.current_issue}: implementing...`);
 		} else if (data.step === 'verifying') {
 			onProgress(`  Issue #${data.current_issue}: verifying...`);

@@ -80,7 +80,7 @@ export interface StatusEntry {
 	readonly issues_done: number;
 }
 
-export type GroupStep = 'idle' | 'cloning' | 'coding' | 'verifying' | 'reviewing' | 'merging';
+export type GroupStep = 'idle' | 'cloning' | 'coding' | 'verifying' | 'reviewing';
 
 export interface GroupStatus {
 	readonly pr_group: string;
@@ -90,8 +90,6 @@ export interface GroupStatus {
 	readonly step_result: string;
 	readonly issues_completed: readonly number[];
 	readonly issues_remaining: readonly number[];
-	readonly blocked: boolean;
-	readonly needs_input: boolean;
 	readonly last_updated: string;
 }
 
@@ -119,7 +117,7 @@ export interface SchedulerDeps {
 		issue: string,
 		groupSlug: string,
 		worktreePath: string,
-		onEvent: (event: WorkerEventType, data: NdjsonMessage | number | Error) => void,
+		onEvent: (event: WorkerEvent) => void,
 		contextContent?: string,
 	) => WorkerHandle;
 	readonly killWorker: (pid: number) => Promise<void>;
@@ -164,7 +162,11 @@ export interface NdjsonResultMessage {
 
 export type NdjsonMessage = NdjsonSystemMessage | NdjsonAssistantMessage | NdjsonResultMessage;
 
-export type WorkerEventType = 'spawned' | 'message' | 'error' | 'exited';
+export type WorkerEvent =
+	| { readonly event: 'spawned' }
+	| { readonly event: 'message'; readonly data: NdjsonMessage }
+	| { readonly event: 'error'; readonly data: Error }
+	| { readonly event: 'exited'; readonly data: number };
 
 export interface WorkerHandle {
 	readonly id: string;
