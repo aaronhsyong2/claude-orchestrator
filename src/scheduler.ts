@@ -44,6 +44,7 @@ function initGroupStatus(group: PRGroup, slug: string, now: () => string): Group
 function coreWorkerDeps(deps: SchedulerDeps, now?: () => string): WorkerCapableDeps {
 	return {
 		spawnWorker: deps.spawnWorker,
+		spawnDirectWorker: deps.spawnDirectWorker,
 		verify: deps.verify,
 		readContext: deps.readContext,
 		writeContext: deps.writeContext,
@@ -280,7 +281,7 @@ async function processGroup(
 			reviewWorktree.worktreePath,
 			freshStatus(slug, group, deps, now),
 			config,
-			coreWorkerDeps(deps, now),
+			{ ...coreWorkerDeps(deps, now), execCommand: deps.execCommand },
 		);
 
 		if (!reviewResult.approved) {

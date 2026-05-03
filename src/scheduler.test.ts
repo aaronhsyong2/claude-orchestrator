@@ -60,6 +60,23 @@ function createMockDeps(overrides?: Partial<SchedulerDeps>): SchedulerDeps {
 				return { id: 'test-1', issue: '1', groupSlug: 'test', pid: 123 } satisfies WorkerHandle;
 			},
 		),
+		spawnDirectWorker: vi.fn(
+			(_id: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+				process.nextTick(() => {
+					onEvent({
+						event: 'message',
+						data: { type: 'result', result: '[]', is_error: false },
+					});
+					onEvent({ event: 'exited', data: 0 });
+				});
+				return {
+					id: 'test-direct',
+					issue: 'direct',
+					groupSlug: 'test',
+					pid: 124,
+				} satisfies WorkerHandle;
+			},
+		),
 		killWorker: vi.fn(async () => {}),
 		verify: vi.fn(async () => ({ success: true as const, steps: [] })),
 		readGroupStatus: vi.fn((slug: string) => statuses.get(slug) ?? null),
@@ -550,8 +567,8 @@ describe('assignWork', () => {
 		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
 
 		expect(result.results[0]?.completed).toBe(true);
-		// spawnWorker is called for self-review + PR review (no issue spawns)
-		expect(deps.spawnWorker).toHaveBeenCalledTimes(2);
+		// spawnDirectWorker is called for self-review + PR review (no issue spawns)
+		expect(deps.spawnDirectWorker).toHaveBeenCalledTimes(2);
 	});
 });
 

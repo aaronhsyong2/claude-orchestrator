@@ -20,7 +20,11 @@ import type {
 	SchedulerDeps,
 } from './types.js';
 import { verify as realVerify } from './verification.js';
-import { killWorker as realKillWorker, spawnWorker as realSpawnWorker } from './worker-manager.js';
+import {
+	killWorker as realKillWorker,
+	spawnDirectWorker as realSpawnDirectWorker,
+	spawnWorker as realSpawnWorker,
+} from './worker-manager.js';
 import { create as realCreate, remove as realRemove } from './worktree-manager.js';
 
 export type ProgressCallback = (message: string) => void;
@@ -74,6 +78,7 @@ function buildRealDeps(): SchedulerDeps {
 		createWorktree: realCreate,
 		removeWorktree: realRemove,
 		spawnWorker: realSpawnWorker,
+		spawnDirectWorker: realSpawnDirectWorker,
 		killWorker: realKillWorker,
 		verify: realVerify,
 		readGroupStatus: realReadGroupStatus,

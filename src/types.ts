@@ -128,6 +128,13 @@ export interface SchedulerDeps {
 		onEvent: (event: WorkerEvent) => void,
 		contextContent?: string,
 	) => WorkerHandle;
+	readonly spawnDirectWorker: (
+		id: string,
+		groupSlug: string,
+		worktreePath: string,
+		onEvent: (event: WorkerEvent) => void,
+		prompt: string,
+	) => WorkerHandle;
 	readonly killWorker: (pid: number) => Promise<void>;
 	readonly verify: (cwd: string, commands: readonly VerifyCommand[]) => Promise<VerifyResult>;
 	readonly readGroupStatus: (groupSlug: string) => GroupStatus | null;
@@ -204,6 +211,13 @@ export interface WorkerCapableDeps {
 		onEvent: (event: WorkerEvent) => void,
 		contextContent?: string,
 	) => WorkerHandle;
+	readonly spawnDirectWorker: (
+		id: string,
+		groupSlug: string,
+		worktreePath: string,
+		onEvent: (event: WorkerEvent) => void,
+		prompt: string,
+	) => WorkerHandle;
 	readonly verify: (cwd: string, commands: readonly VerifyCommand[]) => Promise<VerifyResult>;
 	readonly readContext: (groupSlug: string, issue: string) => string | null;
 	readonly writeContext: (groupSlug: string, issue: string, content: string) => void;
@@ -212,7 +226,9 @@ export interface WorkerCapableDeps {
 	readonly now?: () => string;
 }
 
-export type SelfReviewDeps = WorkerCapableDeps;
+export interface SelfReviewDeps extends WorkerCapableDeps {
+	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
+}
 
 export interface WorkerHandle {
 	readonly id: string;

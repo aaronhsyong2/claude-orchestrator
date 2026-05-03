@@ -49,7 +49,12 @@ export async function pushAndCreatePR(
 }
 
 function parsePRViewOutput(stdout: string): PRCreateResult {
-	const parsed: unknown = JSON.parse(stdout.trim());
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(stdout.trim());
+	} catch {
+		throw new Error(`Could not parse gh pr view JSON: ${stdout.trim().slice(0, 200)}`);
+	}
 	if (
 		typeof parsed !== 'object' ||
 		parsed === null ||

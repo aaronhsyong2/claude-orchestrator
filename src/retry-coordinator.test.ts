@@ -89,6 +89,7 @@ function makeDeps(overrides?: Partial<RetryDeps>): RetryDeps {
 	const contexts = new Map<string, string>();
 	return {
 		spawnWorker: makeSpawnWorker([0]),
+		spawnDirectWorker: vi.fn(),
 		verify: makeVerify([{ success: true, steps: [] }]),
 		readContext: (_slug, issue) => contexts.get(issue) ?? null,
 		writeContext: (_slug, issue, content) => {

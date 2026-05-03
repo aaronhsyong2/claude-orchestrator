@@ -24,17 +24,17 @@ export interface SpawnCaptureResult {
 }
 
 export function spawnAndCapture(
-	issue: string,
+	id: string,
 	groupSlug: string,
 	worktreePath: string,
 	prompt: string,
-	deps: Pick<WorkerCapableDeps, 'spawnWorker'>,
+	deps: Pick<WorkerCapableDeps, 'spawnDirectWorker'>,
 ): Promise<SpawnCaptureResult> {
 	return new Promise<SpawnCaptureResult>((resolve, reject) => {
 		let resultText: string | null = null;
 		try {
-			deps.spawnWorker(
-				issue,
+			deps.spawnDirectWorker(
+				id,
 				groupSlug,
 				worktreePath,
 				(event: WorkerEvent) => {
@@ -60,16 +60,16 @@ export function spawnAndCapture(
 }
 
 export function spawnAndWaitForExit(
-	issue: string,
+	id: string,
 	groupSlug: string,
 	worktreePath: string,
 	prompt: string,
-	deps: Pick<WorkerCapableDeps, 'spawnWorker'>,
+	deps: Pick<WorkerCapableDeps, 'spawnDirectWorker'>,
 ): Promise<number> {
 	return new Promise<number>((resolve, reject) => {
 		try {
-			deps.spawnWorker(
-				issue,
+			deps.spawnDirectWorker(
+				id,
 				groupSlug,
 				worktreePath,
 				(event: WorkerEvent) => {

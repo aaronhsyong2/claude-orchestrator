@@ -98,7 +98,13 @@ export function readContext(groupSlug: string, issue: string, baseDir?: string):
 		return null;
 	}
 
-	return fs.readFileSync(filePath, 'utf-8');
+	try {
+		return fs.readFileSync(filePath, 'utf-8');
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		process.stderr.write(`Warning: failed to read context file ${filePath}: ${message}\n`);
+		return null;
+	}
 }
 
 export function deleteContext(groupSlug: string, issue: string, baseDir?: string): void {

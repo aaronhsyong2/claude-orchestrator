@@ -244,6 +244,11 @@ export async function selfReview(
 				cycle,
 				`fix worker exited with code ${fixExitCode}`,
 			);
+			// Reset dirty tree so next cycle starts clean
+			const resetResult = await deps.execCommand('git', ['checkout', '--', '.'], worktreePath);
+			if (resetResult.exitCode !== 0) {
+				process.stderr.write(`[self-reviewer] git checkout failed: ${resetResult.stderr}\n`);
+			}
 			continue;
 		}
 
@@ -257,6 +262,15 @@ export async function selfReview(
 				cycle,
 				`verification failed: ${verifyResult.failedStep}${verifyResult.error ? `\n\n${verifyResult.error}` : ''}`,
 			);
+			// Reset dirty tree so next cycle starts clean
+			const verifyResetResult = await deps.execCommand(
+				'git',
+				['checkout', '--', '.'],
+				worktreePath,
+			);
+			if (verifyResetResult.exitCode !== 0) {
+				process.stderr.write(`[self-reviewer] git checkout failed: ${verifyResetResult.stderr}\n`);
+			}
 			continue;
 		}
 

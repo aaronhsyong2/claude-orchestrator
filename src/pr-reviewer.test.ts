@@ -46,7 +46,7 @@ function makeStatus(overrides?: Partial<GroupStatus>): GroupStatus {
 	};
 }
 
-type SpawnFn = PRReviewDeps['spawnWorker'];
+type SpawnFn = PRReviewDeps['spawnDirectWorker'];
 
 function makeReviewerSpawn(resultText: string): SpawnFn {
 	return (_issue, _slug, _path, onEvent, _ctx) => {
@@ -93,7 +93,8 @@ function makeSequentialSpawn(
 
 function createMockDeps(overrides?: Partial<PRReviewDeps>): PRReviewDeps {
 	return {
-		spawnWorker: vi.fn(makeReviewerSpawn('[]')),
+		spawnWorker: vi.fn(),
+		spawnDirectWorker: vi.fn(makeReviewerSpawn('[]')),
 		verify: vi.fn(async () => ({ success: true as const, steps: [] })),
 		execCommand: vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' })),
 		readContext: vi.fn(() => null),
@@ -203,7 +204,7 @@ describe('hasBlockingComments', () => {
 describe('prReview', () => {
 	it('approves when no blocking comments on first cycle', async () => {
 		const deps = createMockDeps({
-			spawnWorker: vi.fn(makeReviewerSpawn('[]')),
+			spawnDirectWorker: vi.fn(makeReviewerSpawn('[]')),
 		});
 
 		const result = await prReview(42, 'pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
@@ -215,7 +216,7 @@ describe('prReview', () => {
 	it('approves when only medium/low comments', async () => {
 		const output = '[{"severity":"medium","file":"a.ts","line":1,"body":"nit"}]';
 		const deps = createMockDeps({
-			spawnWorker: vi.fn(makeReviewerSpawn(output)),
+			spawnDirectWorker: vi.fn(makeReviewerSpawn(output)),
 		});
 
 		const result = await prReview(42, 'pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
@@ -232,7 +233,7 @@ describe('prReview', () => {
 			{ type: 'review', result: '[]' }, // Cycle 2: reviewer approves
 		]);
 
-		const deps = createMockDeps({ spawnWorker: vi.fn(spawn) });
+		const deps = createMockDeps({ spawnDirectWorker: vi.fn(spawn) });
 		const result = await prReview(42, 'pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
 
 		expect(result.approved).toBe(true);
@@ -256,7 +257,7 @@ describe('prReview', () => {
 			{ type: 'review', result: blockingOutput }, // Cycle 3 (last)
 		]);
 
-		const deps = createMockDeps({ spawnWorker: vi.fn(spawn) });
+		const deps = createMockDeps({ spawnDirectWorker: vi.fn(spawn) });
 		const result = await prReview(42, 'pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
 
 		expect(result.approved).toBe(false);
@@ -271,7 +272,7 @@ describe('prReview', () => {
 			{ type: 'review', result: '[]' }, // Cycle 2: approved
 		]);
 
-		const deps = createMockDeps({ spawnWorker: vi.fn(spawn) });
+		const deps = createMockDeps({ spawnDirectWorker: vi.fn(spawn) });
 		const result = await prReview(42, 'pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
 
 		expect(result.approved).toBe(true);
@@ -284,7 +285,7 @@ describe('prReview', () => {
 			return { id: 'test', issue: 'test', groupSlug: 'pr-6', pid: 9999 };
 		};
 
-		const deps = createMockDeps({ spawnWorker: vi.fn(spawn) });
+		const deps = createMockDeps({ spawnDirectWorker: vi.fn(spawn) });
 		const result = await prReview(42, 'pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
 
 		expect(result.approved).toBe(false);

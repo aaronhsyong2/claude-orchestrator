@@ -183,7 +183,14 @@ export async function prReview(
 				`verification failed: ${verifyResult.failedStep}${verifyResult.error ? `\n\n${verifyResult.error}` : ''}`,
 			);
 			// Reset dirty tree so next cycle starts clean
-			await deps.execCommand('git', ['checkout', '--', '.'], worktreePath);
+			const verifyResetResult = await deps.execCommand(
+				'git',
+				['checkout', '--', '.'],
+				worktreePath,
+			);
+			if (verifyResetResult.exitCode !== 0) {
+				process.stderr.write(`[pr-reviewer] git checkout failed: ${verifyResetResult.stderr}\n`);
+			}
 			continue;
 		}
 

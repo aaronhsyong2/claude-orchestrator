@@ -46,7 +46,7 @@ function makeStatus(overrides?: Partial<GroupStatus>): GroupStatus {
 	};
 }
 
-type SpawnFn = SelfReviewDeps['spawnWorker'];
+type SpawnFn = SelfReviewDeps['spawnDirectWorker'];
 
 /** Creates a spawnWorker that emits a result message then exits with code 0. */
 function makeReviewerSpawn(resultText: string): SpawnFn {
@@ -95,8 +95,10 @@ function makeSequentialSpawn(
 
 function createMockDeps(overrides?: Partial<SelfReviewDeps>): SelfReviewDeps {
 	return {
-		spawnWorker: vi.fn(makeReviewerSpawn('[]')),
+		spawnWorker: vi.fn(),
+		spawnDirectWorker: vi.fn(makeReviewerSpawn('[]')),
 		verify: vi.fn(async () => ({ success: true as const, steps: [] })),
+		execCommand: vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' })),
 		readContext: vi.fn(() => null),
 		writeContext: vi.fn(),
 		writeGroupStatus: vi.fn(),
@@ -245,7 +247,7 @@ describe('buildFixPrompt', () => {
 describe('selfReview', () => {
 	it('returns approved on clean review (no findings)', async () => {
 		const deps = createMockDeps({
-			spawnWorker: vi.fn(makeReviewerSpawn('[]')),
+			spawnDirectWorker: vi.fn(makeReviewerSpawn('[]')),
 		});
 
 		const result = await selfReview('pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
@@ -258,7 +260,7 @@ describe('selfReview', () => {
 	it('returns approved when only medium/low findings', async () => {
 		const findings = '[{"severity":"medium","file":"a.ts","description":"style"}]';
 		const deps = createMockDeps({
-			spawnWorker: vi.fn(makeReviewerSpawn(findings)),
+			spawnDirectWorker: vi.fn(makeReviewerSpawn(findings)),
 		});
 
 		const result = await selfReview('pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
@@ -278,7 +280,7 @@ describe('selfReview', () => {
 			{ type: 'review', result: cleanFindings }, // cycle 2: review is clean
 		]);
 
-		const deps = createMockDeps({ spawnWorker: vi.fn(spawn) });
+		const deps = createMockDeps({ spawnDirectWorker: vi.fn(spawn) });
 
 		const result = await selfReview('pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
 
@@ -297,7 +299,7 @@ describe('selfReview', () => {
 			{ type: 'review', result: criticalFindings }, // cycle 3: review (max)
 		]);
 
-		const deps = createMockDeps({ spawnWorker: vi.fn(spawn) });
+		const deps = createMockDeps({ spawnDirectWorker: vi.fn(spawn) });
 
 		const result = await selfReview('pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
 
@@ -318,7 +320,7 @@ describe('selfReview', () => {
 		]);
 
 		const deps = createMockDeps({
-			spawnWorker: vi.fn(spawn),
+			spawnDirectWorker: vi.fn(spawn),
 			verify: vi.fn(async () => {
 				verifyCallCount++;
 				if (verifyCallCount === 1) {
@@ -339,7 +341,7 @@ describe('selfReview', () => {
 			{ type: 'exit', code: 1 }, // reviewer crashes
 		]);
 
-		const deps = createMockDeps({ spawnWorker: vi.fn(spawn) });
+		const deps = createMockDeps({ spawnDirectWorker: vi.fn(spawn) });
 
 		const result = await selfReview('pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
 
@@ -349,7 +351,7 @@ describe('selfReview', () => {
 
 	it('updates status at each phase of the loop', async () => {
 		const deps = createMockDeps({
-			spawnWorker: vi.fn(makeReviewerSpawn('[]')),
+			spawnDirectWorker: vi.fn(makeReviewerSpawn('[]')),
 		});
 
 		await selfReview('pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
@@ -373,7 +375,7 @@ describe('selfReview', () => {
 			{ type: 'review', result: cleanFindings }, // cycle 2: review clean
 		]);
 
-		const deps = createMockDeps({ spawnWorker: vi.fn(spawn) });
+		const deps = createMockDeps({ spawnDirectWorker: vi.fn(spawn) });
 
 		const result = await selfReview('pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
 
@@ -387,7 +389,7 @@ describe('selfReview', () => {
 		// With max_review_cycles = 1, should return after first review
 		const spawn = makeSequentialSpawn([{ type: 'review', result: criticalFindings }]);
 
-		const deps = createMockDeps({ spawnWorker: vi.fn(spawn) });
+		const deps = createMockDeps({ spawnDirectWorker: vi.fn(spawn) });
 		const config = makeConfig({ max_review_cycles: 1 });
 
 		const result = await selfReview('pr-6', '/tmp/wt', makeStatus(), config, deps);

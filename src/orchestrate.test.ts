@@ -78,6 +78,21 @@ function buildMockDeps(
 					return { id: `mock-${_issue}`, issue: _issue, groupSlug: _slug, pid: 999 };
 				},
 			),
+		spawnDirectWorker: vi
+			.fn()
+			.mockImplementation(
+				(_id: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+					process.nextTick(() => onEvent({ event: 'spawned' }));
+					process.nextTick(() => {
+						onEvent({
+							event: 'message',
+							data: { type: 'result', result: '[]', is_error: false },
+						});
+						onEvent({ event: 'exited', data: 0 });
+					});
+					return { id: `mock-direct-${_id}`, issue: _id, groupSlug: _slug, pid: 998 };
+				},
+			),
 		killWorker: vi.fn().mockResolvedValue(undefined),
 		verify: vi.fn().mockResolvedValue({
 			success: verifySuccess,
