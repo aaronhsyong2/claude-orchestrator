@@ -1,21 +1,15 @@
-import type {
-	GroupStatus,
-	NotificationConfig,
-	OrchestratorConfig,
-	VerifyCommand,
-	VerifyResult,
-	WorkerEvent,
-	WorkerHandle,
-} from './types.js';
+import type { GroupStatus, OrchestratorConfig, WorkerCapableDeps, WorkerEvent } from './types.js';
+
+export type RetryDeps = WorkerCapableDeps;
 
 // --- Failure classification ---
 
-export type FailureAction = 'retry' | 'notify' | 'needs_input';
+export type FailureAction = 'retry' | 'needs-input';
 
 export function classifyFailure(stepResult: string): FailureAction {
 	// Worktree errors are infrastructure failures — no retry
 	if (stepResult.startsWith('worktree error:')) {
-		return 'needs_input';
+		return 'needs-input';
 	}
 
 	// Verification failures and worker crashes are retryable
@@ -28,26 +22,10 @@ export function classifyFailure(stepResult: string): FailureAction {
 	}
 
 	// Unknown failures — escalate
-	return 'needs_input';
+	return 'needs-input';
 }
 
 // --- Retry coordinator ---
-
-export interface RetryDeps {
-	readonly spawnWorker: (
-		issue: string,
-		groupSlug: string,
-		worktreePath: string,
-		onEvent: (event: WorkerEvent) => void,
-		contextContent?: string,
-	) => WorkerHandle;
-	readonly verify: (cwd: string, commands: readonly VerifyCommand[]) => Promise<VerifyResult>;
-	readonly readContext: (groupSlug: string, issue: string) => string | null;
-	readonly writeContext: (groupSlug: string, issue: string, content: string) => void;
-	readonly writeGroupStatus: (groupSlug: string, data: GroupStatus) => void;
-	readonly notify: (message: string, config: NotificationConfig) => Promise<void>;
-	readonly now?: () => string;
-}
 
 export interface RetryResult {
 	readonly success: boolean;
@@ -106,8 +84,8 @@ export async function executeWithRetry(
 			const stepResult = `worker error: ${message}`;
 			const action = classifyFailure(stepResult);
 
-			if (action === 'needs_input') {
-				return escalate(issue, groupSlug, currentStatus, stepResult, config, deps, attempt);
+			if (action === 'needs-input') {
+				return escalate(issue, groupSlug, currentStatus, stepResult, config, deps, attempt, now);
 			}
 
 			consecutiveCrashes++;
@@ -120,6 +98,7 @@ export async function executeWithRetry(
 					config,
 					deps,
 					attempt,
+					now,
 				);
 			}
 
@@ -140,6 +119,7 @@ export async function executeWithRetry(
 					config,
 					deps,
 					attempt,
+					now,
 				);
 			}
 
@@ -167,8 +147,8 @@ export async function executeWithRetry(
 		const stepResult = `failed: ${verifyResult.failedStep}`;
 		const action = classifyFailure(stepResult);
 
-		if (action === 'needs_input') {
-			return escalate(issue, groupSlug, currentStatus, stepResult, config, deps, attempt);
+		if (action === 'needs-input') {
+			return escalate(issue, groupSlug, currentStatus, stepResult, config, deps, attempt, now);
 		}
 
 		// Append verification error details to context for next retry
@@ -185,6 +165,7 @@ export async function executeWithRetry(
 		config,
 		deps,
 		attempt,
+		now,
 	);
 }
 
@@ -210,23 +191,29 @@ export interface BackoffOptions {
 
 const DEFAULT_BACKOFF: BackoffOptions = { maxAttempts: 3, baseDelayMs: 1000 };
 
+export type BackoffResult<T> =
+	| { readonly success: true; readonly result: T; readonly attempts: number }
+	| { readonly success: false; readonly error: Error; readonly attempts: number };
+
 export async function withBackoff<T>(
 	fn: () => Promise<T>,
 	options: BackoffOptions = DEFAULT_BACKOFF,
-): Promise<{ readonly success: boolean; readonly result?: T; readonly attempts: number }> {
+): Promise<BackoffResult<T>> {
+	let lastError: Error = new Error('withBackoff: no attempts');
 	for (let attempt = 1; attempt <= options.maxAttempts; attempt++) {
 		try {
 			const result = await fn();
 			return { success: true, result, attempts: attempt };
-		} catch {
+		} catch (err) {
+			lastError = err instanceof Error ? err : new Error(String(err));
 			if (attempt === options.maxAttempts) {
-				return { success: false, attempts: attempt };
+				return { success: false, error: lastError, attempts: attempt };
 			}
 			const delay = options.baseDelayMs * 2 ** (attempt - 1);
 			await new Promise((resolve) => setTimeout(resolve, delay));
 		}
 	}
-	return { success: false, attempts: options.maxAttempts };
+	return { success: false, error: lastError, attempts: options.maxAttempts };
 }
 
 function escalate(
@@ -237,8 +224,8 @@ function escalate(
 	config: OrchestratorConfig,
 	deps: RetryDeps,
 	attempts: number,
+	now: () => string,
 ): RetryResult {
-	const now = deps.now ?? (() => new Date().toISOString());
 	deps.writeGroupStatus(groupSlug, {
 		...currentStatus,
 		step: 'idle',
@@ -246,7 +233,10 @@ function escalate(
 		last_updated: now(),
 	});
 
-	void deps.notify(`${groupSlug} #${issue}: ${reason}`, config.notifications);
+	deps.notify(`${groupSlug} #${issue}: ${reason}`, config.notifications).catch((err) => {
+		const msg = err instanceof Error ? err.message : String(err);
+		process.stderr.write(`[retry-coordinator] notification failed: ${msg}\n`);
+	});
 
 	return {
 		success: false,

@@ -7,12 +7,18 @@ import { deriveSlug } from './slug.js';
 import type {
 	AssignWorkResult,
 	GroupStatus,
+	MergeDetectorDeps,
+	MergeDetectorResult,
 	OrchestratorConfig,
 	PlanData,
 	PRGroup,
 	SchedulerDeps,
+	WorkerCapableDeps,
 	WorktreeInfo,
 } from './types.js';
+
+/** Default maximum wait for merge: 24 hours. */
+const DEFAULT_MERGE_WAIT_MS = 24 * 60 * 60 * 1000;
 
 export function getReadyGroups(plan: PlanData, mergedPRs: ReadonlySet<number>): readonly PRGroup[] {
 	return plan.groups.filter((group) => {
@@ -32,6 +38,57 @@ function initGroupStatus(group: PRGroup, slug: string, now: () => string): Group
 		issues_remaining: group.issues.map((i) => i.number),
 		last_updated: now(),
 	};
+}
+
+/** Extract the common WorkerCapableDeps subset from SchedulerDeps. */
+function coreWorkerDeps(deps: SchedulerDeps, now?: () => string): WorkerCapableDeps {
+	return {
+		spawnWorker: deps.spawnWorker,
+		verify: deps.verify,
+		readContext: deps.readContext,
+		writeContext: deps.writeContext,
+		writeGroupStatus: deps.writeGroupStatus,
+		notify: deps.notify,
+		now,
+	};
+}
+
+/** Extract MergeDetectorDeps subset from SchedulerDeps. */
+function coreMergeDetectorDeps(deps: SchedulerDeps): MergeDetectorDeps {
+	return { execCommand: deps.execCommand };
+}
+
+/**
+ * Block until the merge detector completes (merged, closed, or timeout).
+ * Returns the completion result.
+ */
+function waitForMerge(
+	prNumber: number,
+	branch: string,
+	baseBranch: string,
+	cwd: string,
+	deps: SchedulerDeps,
+	maxWaitMs: number = DEFAULT_MERGE_WAIT_MS,
+): Promise<MergeDetectorResult> {
+	return new Promise<MergeDetectorResult>((resolve) => {
+		let resolved = false;
+		let handle: ReturnType<typeof startMergeDetector> | null = null;
+		handle = startMergeDetector(
+			prNumber,
+			branch,
+			baseBranch,
+			cwd,
+			(result) => {
+				if (!resolved) {
+					resolved = true;
+					handle?.stop();
+					resolve(result);
+				}
+			},
+			coreMergeDetectorDeps(deps),
+			{ maxWaitMs },
+		);
+	});
 }
 
 /** Wrap writeGroupStatus to prevent I/O errors from crashing the entire orchestration. */
@@ -104,14 +161,7 @@ async function processIssue(
 			worktreeInfo.worktreePath,
 			currentStatus,
 			config,
-			{
-				spawnWorker: deps.spawnWorker,
-				verify: deps.verify,
-				readContext: deps.readContext,
-				writeContext: deps.writeContext,
-				writeGroupStatus: deps.writeGroupStatus,
-				notify: deps.notify,
-			},
+			coreWorkerDeps(deps, now),
 		);
 
 		if (!retryResult.success) {
@@ -218,14 +268,7 @@ async function processGroup(
 			reviewWorktree.worktreePath,
 			freshStatus(slug, group, deps, now),
 			config,
-			{
-				spawnWorker: deps.spawnWorker,
-				verify: deps.verify,
-				readContext: deps.readContext,
-				writeContext: deps.writeContext,
-				writeGroupStatus: deps.writeGroupStatus,
-				notify: deps.notify,
-			},
+			coreWorkerDeps(deps, now),
 		);
 
 		if (!reviewResult.approved) {
@@ -235,10 +278,15 @@ async function processGroup(
 				step_result: 'needs-input',
 				last_updated: now(),
 			});
-			void deps.notify(
-				`${slug}: self-review found unresolved critical/high findings after ${reviewResult.cycle} cycle(s)`,
-				config.notifications,
-			);
+			deps
+				.notify(
+					`${slug}: self-review found unresolved critical/high findings after ${reviewResult.cycle} cycle(s)`,
+					config.notifications,
+				)
+				.catch((err) => {
+					const msg = err instanceof Error ? err.message : String(err);
+					process.stderr.write(`[scheduler] notification failed: ${msg}\n`);
+				});
 			return {
 				completed: false,
 				error: 'self-review: unresolved critical/high findings',
@@ -290,15 +338,7 @@ async function processGroup(
 			reviewWorktree.worktreePath,
 			freshStatus(slug, group, deps, now),
 			config,
-			{
-				spawnWorker: deps.spawnWorker,
-				verify: deps.verify,
-				execCommand: deps.execCommand,
-				readContext: deps.readContext,
-				writeContext: deps.writeContext,
-				writeGroupStatus: deps.writeGroupStatus,
-				notify: deps.notify,
-			},
+			{ ...coreWorkerDeps(deps, now), execCommand: deps.execCommand },
 		);
 
 		if (!prReviewResult.approved) {
@@ -308,15 +348,23 @@ async function processGroup(
 				step_result: 'needs-input',
 				last_updated: now(),
 			});
-			void deps.notify(
-				`${slug}: PR #${prNumber} has unresolved comments after ${prReviewResult.cycle} cycle(s)`,
-				config.notifications,
-			);
+			deps
+				.notify(
+					`${slug}: PR #${prNumber} has unresolved comments after ${prReviewResult.cycle} cycle(s)`,
+					config.notifications,
+				)
+				.catch((err) => {
+					const msg = err instanceof Error ? err.message : String(err);
+					process.stderr.write(`[scheduler] notification failed: ${msg}\n`);
+				});
 			return { completed: false, error: 'pr-review: unresolved comments' };
 		}
 
 		// PR approved — notify user
-		void deps.notify(`${slug}: PR #${prNumber} ready to merge`, config.notifications);
+		deps.notify(`${slug}: PR #${prNumber} ready to merge`, config.notifications).catch((err) => {
+			const msg = err instanceof Error ? err.message : String(err);
+			process.stderr.write(`[scheduler] notification failed: ${msg}\n`);
+		});
 
 		safeWriteStatus(deps, slug, {
 			...freshStatus(slug, group, deps, now),
@@ -326,26 +374,15 @@ async function processGroup(
 		});
 
 		// --- Merge Detection ---
-		const mergeDetectorHandle = await new Promise<ReturnType<typeof startMergeDetector>>(
-			(resolveHandle) => {
-				let resolved = false;
-				const handle = startMergeDetector(
-					prNumber,
-					group.branch,
-					reviewWorktree.worktreePath,
-					() => {
-						if (!resolved) {
-							resolved = true;
-							resolveHandle(handle);
-						}
-					},
-					{ execCommand: deps.execCommand, removeWorktree: deps.removeWorktree },
-				);
-			},
+		const mergeResult = await waitForMerge(
+			prNumber,
+			group.branch,
+			config.base_branch,
+			reviewWorktree.worktreePath,
+			deps,
 		);
-		mergeDetectorHandle.stop();
 
-		// Merge detected — cleanup worktree
+		// Cleanup worktree regardless of result
 		try {
 			deps.removeWorktree(group.branch);
 		} catch (err) {
@@ -355,7 +392,27 @@ async function processGroup(
 			);
 		}
 
-		return { completed: true };
+		if (mergeResult === 'merged') {
+			return { completed: true };
+		}
+
+		// CLOSED or timeout — escalate
+		const reason =
+			mergeResult === 'closed'
+				? `PR #${prNumber} was closed without merging`
+				: `PR #${prNumber} merge wait timed out`;
+
+		safeWriteStatus(deps, slug, {
+			...freshStatus(slug, group, deps, now),
+			step: 'idle',
+			step_result: 'needs-input',
+			last_updated: now(),
+		});
+		deps.notify(`${slug}: ${reason}`, config.notifications).catch((err) => {
+			const msg = err instanceof Error ? err.message : String(err);
+			process.stderr.write(`[scheduler] notification failed: ${msg}\n`);
+		});
+		return { completed: false, error: reason };
 	} catch (err) {
 		// Unexpected error during PR lifecycle — cleanup worktree
 		try {

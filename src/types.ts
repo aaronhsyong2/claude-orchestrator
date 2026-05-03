@@ -195,7 +195,8 @@ export interface ReviewResult {
 	readonly cycle: number;
 }
 
-export interface SelfReviewDeps {
+/** Shared dependency interface for worker-capable modules (retry, self-review, PR review). */
+export interface WorkerCapableDeps {
 	readonly spawnWorker: (
 		issue: string,
 		groupSlug: string,
@@ -210,6 +211,8 @@ export interface SelfReviewDeps {
 	readonly notify: (message: string, config: NotificationConfig) => Promise<void>;
 	readonly now?: () => string;
 }
+
+export type SelfReviewDeps = WorkerCapableDeps;
 
 export interface WorkerHandle {
 	readonly id: string;
@@ -241,15 +244,8 @@ export interface PRReviewResult {
 	readonly cycle: number;
 }
 
-export interface PRReviewDeps {
-	readonly spawnWorker: SelfReviewDeps['spawnWorker'];
-	readonly verify: SelfReviewDeps['verify'];
+export interface PRReviewDeps extends WorkerCapableDeps {
 	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
-	readonly readContext: (groupSlug: string, issue: string) => string | null;
-	readonly writeContext: (groupSlug: string, issue: string, content: string) => void;
-	readonly writeGroupStatus: (groupSlug: string, data: GroupStatus) => void;
-	readonly notify: (message: string, config: NotificationConfig) => Promise<void>;
-	readonly now?: () => string;
 }
 
 // --- Merge Detector types ---
@@ -258,9 +254,9 @@ export type MergeDetectorState = 'GITHUB_POLLING' | 'GIT_FALLBACK';
 
 export interface MergeDetectorDeps {
 	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
-	readonly removeWorktree: (branch: string) => void;
-	readonly now?: () => string;
 }
+
+export type MergeDetectorResult = 'merged' | 'closed' | 'timeout';
 
 export interface MergeDetectorHandle {
 	readonly stop: () => void;

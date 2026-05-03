@@ -1,21 +1,20 @@
+import {
+	appendReviewContext,
+	buildRulesSection,
+	parseJsonArray,
+	spawnAndCapture,
+	spawnAndWaitForExit,
+	VALID_SEVERITIES,
+} from './review-helpers.js';
 import { resolveRuleFileContents } from './self-reviewer.js';
 import type {
 	FindingSeverity,
 	GroupStatus,
-	NdjsonResultMessage,
 	OrchestratorConfig,
 	PRComment,
 	PRReviewDeps,
 	PRReviewResult,
-	WorkerEvent,
 } from './types.js';
-
-const VALID_SEVERITIES: ReadonlySet<string> = new Set<FindingSeverity>([
-	'critical',
-	'high',
-	'medium',
-	'low',
-]);
 
 // --- Prompt builders ---
 
@@ -24,10 +23,7 @@ export function buildPRReviewPrompt(
 	ruleContents: readonly string[],
 	priorComments: string | null,
 ): string {
-	const rulesSection =
-		ruleContents.length > 0
-			? `\n\n## Rule Files\n\n${ruleContents.map((content, i) => `### Rule file ${i + 1}\n\n${content}`).join('\n\n')}`
-			: '';
+	const rulesSection = buildRulesSection(ruleContents);
 
 	const priorSection = priorComments
 		? `\n\n## Prior Review Comments (verify these are addressed)\n\n${priorComments}`
@@ -70,47 +66,25 @@ export function buildPRFixPrompt(comments: readonly PRComment[]): string {
 
 // --- Parsing ---
 
+function isValidPRComment(item: unknown): item is PRComment {
+	return (
+		typeof item === 'object' &&
+		item !== null &&
+		typeof (item as Record<string, unknown>).severity === 'string' &&
+		VALID_SEVERITIES.has((item as Record<string, unknown>).severity as string) &&
+		typeof (item as Record<string, unknown>).file === 'string' &&
+		typeof (item as Record<string, unknown>).body === 'string'
+	);
+}
+
 export function parsePRComments(output: string): readonly PRComment[] {
-	const candidates: string[] = [...(output.match(/\[[^[]*?\]/g) ?? [])];
-
-	const greedyMatch = output.match(/\[\s*\{[\s\S]*?\}\s*\]/);
-	if (greedyMatch) {
-		candidates.unshift(greedyMatch[0]);
-	}
-
-	for (const candidate of candidates) {
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(candidate);
-		} catch {
-			continue;
-		}
-
-		if (!Array.isArray(parsed)) continue;
-
-		const comments = parsed.filter(
-			(item): item is PRComment =>
-				typeof item === 'object' &&
-				item !== null &&
-				typeof (item as Record<string, unknown>).severity === 'string' &&
-				VALID_SEVERITIES.has((item as Record<string, unknown>).severity as string) &&
-				typeof (item as Record<string, unknown>).file === 'string' &&
-				typeof (item as Record<string, unknown>).body === 'string',
-		);
-
-		if (comments.length > 0) {
-			return comments.map((c) => ({
-				severity: c.severity,
-				file: c.file,
-				line: typeof c.line === 'number' ? c.line : null,
-				body: c.body,
-			}));
-		}
-	}
-
-	if (/\[\s*\]/.test(output)) return [];
-
-	return [];
+	const raw = parseJsonArray<PRComment>(output, isValidPRComment);
+	return raw.map((c) => ({
+		severity: c.severity as FindingSeverity,
+		file: c.file,
+		line: typeof c.line === 'number' ? c.line : null,
+		body: c.body,
+	}));
 }
 
 export function hasBlockingComments(comments: readonly PRComment[]): boolean {
@@ -138,7 +112,6 @@ export async function prReview(
 	const contextKey = prReviewContextKey(groupSlug);
 
 	for (let cycle = 1; cycle <= maxCycles; cycle++) {
-		// Update status
 		deps.writeGroupStatus(groupSlug, {
 			...currentStatus,
 			step: 'pr-reviewing',
@@ -146,12 +119,10 @@ export async function prReview(
 			last_updated: now(),
 		});
 
-		// Resolve rule file contents
 		const ruleContents = resolveRuleFileContents(config.rule_files, worktreePath);
 		const priorComments = deps.readContext(groupSlug, contextKey);
 		const reviewPrompt = buildPRReviewPrompt(prNumber, ruleContents, priorComments);
 
-		// Spawn reviewer and capture result
 		const reviewCapture = await spawnAndCapture(
 			contextKey,
 			groupSlug,
@@ -170,12 +141,10 @@ export async function prReview(
 			return { comments, approved: true, cycle };
 		}
 
-		// Last cycle — can't fix, return unapproved
 		if (cycle === maxCycles) {
 			return { comments, approved: false, cycle };
 		}
 
-		// Spawn fix worker
 		const fixPrompt = buildPRFixPrompt(comments);
 		const fixExitCode = await spawnAndWaitForExit(
 			`pr-fix-${groupSlug}`,
@@ -186,126 +155,93 @@ export async function prReview(
 		);
 
 		if (fixExitCode !== 0) {
-			appendPRReviewContext(deps, groupSlug, cycle, `fix worker exited with code ${fixExitCode}`);
+			appendReviewContext(
+				deps,
+				groupSlug,
+				contextKey,
+				'PR Review',
+				cycle,
+				`fix worker exited with code ${fixExitCode}`,
+			);
+			// Clean dirty tree so next cycle starts from a known baseline
+			const resetResult = await deps.execCommand('git', ['checkout', '--', '.'], worktreePath);
+			if (resetResult.exitCode !== 0) {
+				process.stderr.write(`[pr-reviewer] git checkout failed: ${resetResult.stderr}\n`);
+			}
 			continue;
 		}
 
-		// Run verification after fix
 		const verifyResult = await deps.verify(worktreePath, config.verify);
 		if (!verifyResult.success) {
-			appendPRReviewContext(
+			appendReviewContext(
 				deps,
 				groupSlug,
+				contextKey,
+				'PR Review',
 				cycle,
 				`verification failed: ${verifyResult.failedStep}${verifyResult.error ? `\n\n${verifyResult.error}` : ''}`,
 			);
 			continue;
 		}
 
-		// Commit and push fix
+		// Stage all changes (including new files) then commit
+		const addResult = await deps.execCommand('git', ['add', '-A'], worktreePath);
+		if (addResult.exitCode !== 0) {
+			appendReviewContext(
+				deps,
+				groupSlug,
+				contextKey,
+				'PR Review',
+				cycle,
+				`git add failed: ${addResult.stderr}`,
+			);
+			continue;
+		}
+
 		const commitResult = await deps.execCommand(
 			'git',
-			['commit', '-am', `fix: address PR review comments (cycle ${cycle})`],
+			['commit', '-m', `fix: address PR review comments (cycle ${cycle})`],
 			worktreePath,
 		);
 
 		if (commitResult.exitCode !== 0) {
-			appendPRReviewContext(deps, groupSlug, cycle, `commit failed: ${commitResult.stderr}`);
+			appendReviewContext(
+				deps,
+				groupSlug,
+				contextKey,
+				'PR Review',
+				cycle,
+				`commit failed: ${commitResult.stderr}`,
+			);
 			continue;
 		}
 
 		const pushResult = await deps.execCommand('git', ['push'], worktreePath);
 		if (pushResult.exitCode !== 0) {
-			appendPRReviewContext(deps, groupSlug, cycle, `push failed: ${pushResult.stderr}`);
+			appendReviewContext(
+				deps,
+				groupSlug,
+				contextKey,
+				'PR Review',
+				cycle,
+				`push failed: ${pushResult.stderr}`,
+			);
 			continue;
 		}
 
-		// Append review comments as context for next cycle
 		const commentsSummary = comments
 			.filter((c) => c.severity === 'critical' || c.severity === 'high')
 			.map((c) => `- [${c.severity}] ${c.file}: ${c.body}`)
 			.join('\n');
-		appendPRReviewContext(deps, groupSlug, cycle, `comments addressed:\n${commentsSummary}`);
+		appendReviewContext(
+			deps,
+			groupSlug,
+			contextKey,
+			'PR Review',
+			cycle,
+			`comments addressed:\n${commentsSummary}`,
+		);
 	}
 
 	return { comments: [], approved: false, cycle: maxCycles };
-}
-
-// --- Helpers ---
-
-interface SpawnCaptureResult {
-	readonly exitCode: number;
-	readonly resultText: string | null;
-}
-
-function spawnAndCapture(
-	issue: string,
-	groupSlug: string,
-	worktreePath: string,
-	prompt: string,
-	deps: PRReviewDeps,
-): Promise<SpawnCaptureResult> {
-	return new Promise<SpawnCaptureResult>((resolve, reject) => {
-		let resultText: string | null = null;
-		try {
-			deps.spawnWorker(
-				issue,
-				groupSlug,
-				worktreePath,
-				(event: WorkerEvent) => {
-					if (event.event === 'message' && event.data.type === 'result') {
-						const resultMsg = event.data as NdjsonResultMessage;
-						resultText = resultMsg.result;
-					}
-					if (event.event === 'exited') {
-						resolve({ exitCode: event.data, resultText });
-					}
-					if (event.event === 'error') {
-						resolve({ exitCode: 1, resultText: null });
-					}
-				},
-				prompt,
-			);
-		} catch (err) {
-			reject(err);
-		}
-	});
-}
-
-function spawnAndWaitForExit(
-	issue: string,
-	groupSlug: string,
-	worktreePath: string,
-	prompt: string,
-	deps: PRReviewDeps,
-): Promise<number> {
-	return new Promise<number>((resolve, reject) => {
-		try {
-			deps.spawnWorker(
-				issue,
-				groupSlug,
-				worktreePath,
-				(event: WorkerEvent) => {
-					if (event.event === 'exited') resolve(event.data);
-					if (event.event === 'error') resolve(1);
-				},
-				prompt,
-			);
-		} catch (err) {
-			reject(err);
-		}
-	});
-}
-
-function appendPRReviewContext(
-	deps: PRReviewDeps,
-	groupSlug: string,
-	cycle: number,
-	detail: string,
-): void {
-	const key = prReviewContextKey(groupSlug);
-	const existing = deps.readContext(groupSlug, key) ?? '';
-	const entry = `## PR Review cycle ${cycle}\n\n${detail}\n`;
-	const updated = existing ? `${existing}\n${entry}` : entry;
-	deps.writeContext(groupSlug, key, updated);
 }

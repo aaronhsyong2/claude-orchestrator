@@ -23,17 +23,17 @@ describe('classifyFailure', () => {
 	});
 
 	it('routes git conflict to immediate needs_input', () => {
-		expect(classifyFailure('worktree error: conflict')).toBe('needs_input');
-		expect(classifyFailure('worktree error: merge conflict in file.ts')).toBe('needs_input');
+		expect(classifyFailure('worktree error: conflict')).toBe('needs-input');
+		expect(classifyFailure('worktree error: merge conflict in file.ts')).toBe('needs-input');
 	});
 
 	it('routes disk full to immediate needs_input', () => {
-		expect(classifyFailure('worktree error: ENOSPC')).toBe('needs_input');
-		expect(classifyFailure('worktree error: No space left on device')).toBe('needs_input');
+		expect(classifyFailure('worktree error: ENOSPC')).toBe('needs-input');
+		expect(classifyFailure('worktree error: No space left on device')).toBe('needs-input');
 	});
 
 	it('routes generic worktree error to needs_input', () => {
-		expect(classifyFailure('worktree error: unknown issue')).toBe('needs_input');
+		expect(classifyFailure('worktree error: unknown issue')).toBe('needs-input');
 	});
 });
 
@@ -288,14 +288,16 @@ describe('withBackoff', () => {
 		expect(result).toEqual({ success: true, result: 'ok', attempts: 3 });
 	});
 
-	it('returns failure after max attempts exhausted', async () => {
+	it('returns failure with error after max attempts exhausted', async () => {
 		const fn = async () => {
 			throw new Error('always fails');
 		};
 
 		const result = await withBackoff(fn, { maxAttempts: 3, baseDelayMs: 1 });
 
-		expect(result).toEqual({ success: false, attempts: 3 });
+		expect(result.success).toBe(false);
+		expect(result.attempts).toBe(3);
+		expect(!result.success && result.error.message).toBe('always fails');
 	});
 
 	it('applies exponential backoff delays', async () => {

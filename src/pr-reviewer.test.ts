@@ -237,10 +237,11 @@ describe('prReview', () => {
 
 		expect(result.approved).toBe(true);
 		expect(result.cycle).toBe(2);
-		// Verify commit was made
+		// Verify staging + commit was made
+		expect(deps.execCommand).toHaveBeenCalledWith('git', ['add', '-A'], '/tmp/wt');
 		expect(deps.execCommand).toHaveBeenCalledWith(
 			'git',
-			['commit', '-am', 'fix: address PR review comments (cycle 1)'],
+			['commit', '-m', 'fix: address PR review comments (cycle 1)'],
 			'/tmp/wt',
 		);
 	});

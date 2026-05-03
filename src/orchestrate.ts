@@ -71,12 +71,11 @@ async function realExecCommand(
 
 function buildRealDeps(): SchedulerDeps {
 	return {
-		createWorktree: (branch, baseBranch) => realCreate(branch, baseBranch),
-		removeWorktree: (branch) => realRemove(branch),
-		spawnWorker: (issue, groupSlug, worktreePath, onEvent, context) =>
-			realSpawnWorker(issue, groupSlug, worktreePath, onEvent, context),
+		createWorktree: realCreate,
+		removeWorktree: realRemove,
+		spawnWorker: realSpawnWorker,
 		killWorker: realKillWorker,
-		verify: (cwd, commands) => realVerify(cwd, commands),
+		verify: realVerify,
 		readGroupStatus: realReadGroupStatus,
 		writeGroupStatus: realWriteGroupStatus,
 		readContext: realReadContext,

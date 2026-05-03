@@ -1,7 +1,15 @@
-import type { MergeDetectorDeps, MergeDetectorHandle, MergeDetectorState } from './types.js';
+import type {
+	MergeDetectorDeps,
+	MergeDetectorHandle,
+	MergeDetectorResult,
+	MergeDetectorState,
+} from './types.js';
 
+/** GitHub API poll interval (10s) — primary detection path. */
 const GITHUB_POLL_INTERVAL_MS = 10_000;
+/** Git fallback poll interval (5s) — faster to compensate for weaker heuristic. */
 const GIT_FALLBACK_INTERVAL_MS = 5_000;
+/** Recovery poll interval (60s) — infrequent probe to detect GitHub API recovery. */
 const RECOVERY_POLL_INTERVAL_MS = 60_000;
 const MAX_CONSECUTIVE_FAILURES = 3;
 
@@ -11,13 +19,17 @@ export interface MergeDetectorOptions {
 	readonly githubPollMs?: number;
 	readonly gitFallbackMs?: number;
 	readonly recoveryPollMs?: number;
+	readonly maxWaitMs?: number;
 }
+
+export type PRState = 'OPEN' | 'CLOSED' | 'MERGED';
 
 export function startMergeDetector(
 	prNumber: number,
 	branch: string,
+	baseBranch: string,
 	cwd: string,
-	onMerge: () => void,
+	onComplete: (result: MergeDetectorResult) => void,
 	deps: MergeDetectorDeps,
 	options?: MergeDetectorOptions,
 ): MergeDetectorHandle {
@@ -26,10 +38,19 @@ export function startMergeDetector(
 	const recoveryPollMs = options?.recoveryPollMs ?? RECOVERY_POLL_INTERVAL_MS;
 
 	let stopped = false;
+	let completed = false;
 	let state: MergeDetectorState = 'GITHUB_POLLING';
 	let consecutiveFailures = 0;
 	let pollTimer: ReturnType<typeof setTimeout> | null = null;
 	let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+	let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function complete(result: MergeDetectorResult): void {
+		if (completed || stopped) return;
+		completed = true;
+		clearTimers();
+		onComplete(result);
+	}
 
 	function clearTimers(): void {
 		if (pollTimer !== null) {
@@ -40,92 +61,160 @@ export function startMergeDetector(
 			clearTimeout(recoveryTimer);
 			recoveryTimer = null;
 		}
+		if (timeoutTimer !== null) {
+			clearTimeout(timeoutTimer);
+			timeoutTimer = null;
+		}
 	}
 
 	async function pollGitHub(): Promise<void> {
-		if (stopped) return;
+		if (stopped || completed) return;
 
-		const result = await deps.execCommand(
-			'gh',
-			['pr', 'view', String(prNumber), '--json', 'state'],
-			cwd,
-		);
+		try {
+			const result = await deps.execCommand(
+				'gh',
+				['pr', 'view', String(prNumber), '--json', 'state'],
+				cwd,
+			);
 
-		if (stopped) return;
+			if (stopped || completed) return;
 
-		if (result.exitCode !== 0) {
+			if (result.exitCode !== 0) {
+				consecutiveFailures++;
+				if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+					transitionToGitFallback();
+					return;
+				}
+				schedulePoll();
+				return;
+			}
+
+			const parsed = parsePRState(result.stdout);
+			if (parsed === null) {
+				// Malformed JSON — count as failure
+				consecutiveFailures++;
+				if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+					transitionToGitFallback();
+					return;
+				}
+				schedulePoll();
+				return;
+			}
+
+			// Valid response — reset failure counter
+			consecutiveFailures = 0;
+
+			if (parsed === 'MERGED') {
+				complete('merged');
+				return;
+			}
+
+			if (parsed === 'CLOSED') {
+				complete('closed');
+				return;
+			}
+
+			schedulePoll();
+		} catch (err) {
+			if (stopped || completed) return;
+			const msg = err instanceof Error ? err.message : String(err);
+			process.stderr.write(`[merge-detector] PR #${prNumber}: poll error: ${msg}\n`);
 			consecutiveFailures++;
 			if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
 				transitionToGitFallback();
 				return;
 			}
 			schedulePoll();
-			return;
 		}
-
-		consecutiveFailures = 0;
-
-		const parsed = parsePRState(result.stdout);
-		if (parsed === 'MERGED') {
-			onMerge();
-			return;
-		}
-
-		schedulePoll();
 	}
 
 	async function pollGit(): Promise<void> {
-		if (stopped) return;
+		if (stopped || completed) return;
 
-		const fetchResult = await deps.execCommand('git', ['fetch', 'origin'], cwd);
-		if (stopped) return;
+		try {
+			const fetchResult = await deps.execCommand('git', ['fetch', '--prune', 'origin'], cwd);
+			if (stopped || completed) return;
 
-		if (fetchResult.exitCode === 0) {
-			const merged = await checkMergedViaGit();
-			if (stopped) return;
-			if (merged) {
-				onMerge();
+			if (fetchResult.exitCode !== 0) {
+				process.stderr.write(
+					`[merge-detector] PR #${prNumber}: git fetch failed (exit ${fetchResult.exitCode})\n`,
+				);
+				schedulePoll();
 				return;
 			}
-		}
 
-		schedulePoll();
+			const merged = await checkMergedViaGit();
+			if (stopped || completed) return;
+			if (merged) {
+				complete('merged');
+				return;
+			}
+
+			schedulePoll();
+		} catch (err) {
+			if (stopped || completed) return;
+			const msg = err instanceof Error ? err.message : String(err);
+			process.stderr.write(`[merge-detector] PR #${prNumber}: git poll error: ${msg}\n`);
+			schedulePoll();
+		}
 	}
 
 	async function checkMergedViaGit(): Promise<boolean> {
-		// Check if the branch ref has been deleted on remote (merged + branch deleted)
+		// Check if branch ref still exists on remote
 		const lsResult = await deps.execCommand('git', ['ls-remote', '--heads', 'origin', branch], cwd);
-		if (lsResult.exitCode === 0 && lsResult.stdout.trim() === '') {
-			// Remote branch gone — likely merged and deleted
-			return true;
+		if (lsResult.exitCode !== 0 || lsResult.stdout.trim() !== '') {
+			// Branch still exists or ls-remote failed — not merged
+			return false;
 		}
-		return false;
+
+		// Branch gone from remote — verify the local branch tip is an ancestor of base.
+		// We use the local branch ref (which exists in the worktree) since --prune
+		// removes the remote tracking ref. Exit 0 = ancestor (merged), 1 = not.
+		const ancestorCheck = await deps.execCommand(
+			'git',
+			['merge-base', '--is-ancestor', branch, `origin/${baseBranch}`],
+			cwd,
+		);
+		return ancestorCheck.exitCode === 0;
 	}
 
 	async function recoveryPoll(): Promise<void> {
-		if (stopped || state !== 'GIT_FALLBACK') return;
+		if (stopped || completed || state !== 'GIT_FALLBACK') return;
 
-		const result = await deps.execCommand(
-			'gh',
-			['pr', 'view', String(prNumber), '--json', 'state'],
-			cwd,
-		);
+		try {
+			const result = await deps.execCommand(
+				'gh',
+				['pr', 'view', String(prNumber), '--json', 'state'],
+				cwd,
+			);
 
-		if (stopped) return;
+			if (stopped || completed) return;
 
-		if (result.exitCode === 0) {
-			const parsed = parsePRState(result.stdout);
-			if (parsed === 'MERGED') {
-				onMerge();
-				return;
+			if (result.exitCode === 0) {
+				const parsed = parsePRState(result.stdout);
+				if (parsed === 'MERGED') {
+					complete('merged');
+					return;
+				}
+				if (parsed === 'CLOSED') {
+					complete('closed');
+					return;
+				}
+				if (parsed !== null) {
+					// GitHub recovered — switch back
+					transitionToGitHubPolling();
+					return;
+				}
 			}
-			// GitHub recovered — switch back
-			transitionToGitHubPolling();
-			return;
-		}
 
-		// Still failing — schedule next recovery attempt
-		scheduleRecovery();
+			// Still failing — schedule next recovery attempt
+			scheduleRecovery();
+		} catch (err) {
+			if (stopped || completed) return;
+			const msg = err instanceof Error ? err.message : String(err);
+			process.stderr.write(`[merge-detector] PR #${prNumber}: recovery poll error: ${msg}\n`);
+			scheduleRecovery();
+		}
 	}
 
 	function transitionToGitFallback(): void {
@@ -151,7 +240,7 @@ export function startMergeDetector(
 	}
 
 	function schedulePoll(): void {
-		if (stopped) return;
+		if (stopped || completed) return;
 		const interval = state === 'GITHUB_POLLING' ? githubPollMs : gitFallbackMs;
 		pollTimer = setTimeout(() => {
 			if (state === 'GITHUB_POLLING') {
@@ -163,10 +252,17 @@ export function startMergeDetector(
 	}
 
 	function scheduleRecovery(): void {
-		if (stopped) return;
+		if (stopped || completed) return;
 		recoveryTimer = setTimeout(() => {
 			void recoveryPoll();
 		}, recoveryPollMs);
+	}
+
+	// Start timeout timer if configured
+	if (options?.maxWaitMs !== undefined) {
+		timeoutTimer = setTimeout(() => {
+			complete('timeout');
+		}, options.maxWaitMs);
 	}
 
 	// Start initial poll
@@ -180,10 +276,14 @@ export function startMergeDetector(
 	};
 }
 
-function parsePRState(stdout: string): string | null {
+export function parsePRState(stdout: string): PRState | null {
 	try {
 		const parsed = JSON.parse(stdout.trim()) as { state?: string };
-		return parsed.state ?? null;
+		const state = parsed.state;
+		if (state === 'MERGED' || state === 'CLOSED' || state === 'OPEN') {
+			return state;
+		}
+		return null;
 	} catch {
 		return null;
 	}
