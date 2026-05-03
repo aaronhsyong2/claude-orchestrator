@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import * as fs from 'node:fs';
 import { configExists, promptOverwrite, writeDefaultConfig } from './config.js';
-import { acquireLock, installSignalHandlers } from './lock.js';
+import { acquireLock, installSignalHandlers, releaseLock } from './lock.js';
+import { orchestrate } from './orchestrate.js';
 import { clearRuntimeState } from './runtime.js';
 import { printStatus } from './status.js';
 
@@ -35,7 +36,7 @@ async function handleInit(): Promise<void> {
 	process.stdout.write('Created .orchestrator/config.json with defaults.\n');
 }
 
-function handleStart(args: readonly string[]): void {
+async function handleStart(args: readonly string[]): Promise<void> {
 	const fresh = args.includes('--fresh');
 	const remaining = args.filter((a) => a !== '--fresh');
 	const planPath = remaining[0];
@@ -59,9 +60,17 @@ function handleStart(args: readonly string[]): void {
 	acquireLock();
 	installSignalHandlers();
 	process.stdout.write(`Acquired lock (.orchestrator/lock, PID ${process.pid})\n`);
-	// Lock held until process exits or scheduler (#9) releases it.
-	// Signal handlers clean up lock on SIGINT/SIGTERM.
-	process.stdout.write('Orchestrator started. Scheduler not yet implemented (see Issue #9).\n');
+
+	try {
+		const result = await orchestrate(planPath, (msg) => process.stdout.write(`${msg}\n`));
+		const failed = result.results.filter((r) => !r.completed);
+		if (failed.length > 0) {
+			process.stderr.write(`Error: ${failed.length} group(s) failed\n`);
+			process.exit(1);
+		}
+	} finally {
+		releaseLock();
+	}
 }
 
 function handleStatus(): void {
@@ -77,7 +86,7 @@ async function main(): Promise<void> {
 			await handleInit();
 			break;
 		case 'start':
-			handleStart(args.slice(1));
+			await handleStart(args.slice(1));
 			break;
 		case 'status':
 			handleStatus();

@@ -83,7 +83,9 @@ describe('cli', () => {
 			expect(result.stderr).toContain('Plan file not found');
 		});
 
-		it('acquires lock with valid plan file', () => {
+		it('acquires lock and completes with empty plan', () => {
+			// Init config so loadConfig succeeds
+			run('init');
 			const planPath = path.join(tmpDir, 'plan.md');
 			fs.writeFileSync(planPath, '# Test Plan\n');
 
@@ -93,6 +95,8 @@ describe('cli', () => {
 		});
 
 		it('clears runtime state with --fresh', () => {
+			// Init config so loadConfig succeeds
+			run('init');
 			const planPath = path.join(tmpDir, 'plan.md');
 			fs.writeFileSync(planPath, '# Test Plan\n');
 
