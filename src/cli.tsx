@@ -5,6 +5,7 @@ import { acquireLock, installSignalHandlers, releaseLock } from './lock.js';
 import { orchestrate } from './orchestrate.js';
 import { clearRuntimeState } from './runtime.js';
 import { printStatus } from './status.js';
+import { launchDashboard } from './tui/launch.js';
 
 const USAGE = `Usage: orchestrator <command>
 
@@ -12,6 +13,7 @@ Commands:
   init             Scaffold .orchestrator/config.json with defaults
   start <plan>     Start orchestration from a plan file
   status           Print current orchestration status
+  dashboard        Launch TUI dashboard
 
 Options:
   start --fresh    Clear runtime state before starting
@@ -90,6 +92,9 @@ async function main(): Promise<void> {
 			break;
 		case 'status':
 			handleStatus();
+			break;
+		case 'dashboard':
+			launchDashboard();
 			break;
 		default:
 			printUsage();
