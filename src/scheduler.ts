@@ -224,6 +224,7 @@ async function processGroup(
 	readonly completed: boolean;
 	readonly failedIssue?: number;
 	readonly error?: string;
+	readonly shutdown?: boolean;
 }> {
 	let slug: string;
 	try {
@@ -246,6 +247,23 @@ async function processGroup(
 	const remaining = status.issues_remaining;
 
 	for (const issueNumber of remaining) {
+		// Shutdown checkpoint — between issues only (per design: no mid-step interruption)
+		const shutdownSignal = deps.shouldShutdown?.();
+		if (shutdownSignal) {
+			safeWriteStatus(deps, slug, {
+				...freshStatus(slug, group, deps, now),
+				current_issue: null,
+				step: 'idle',
+				step_result: 'interrupted',
+				last_updated: now(),
+			});
+			return {
+				completed: false,
+				shutdown: true,
+				error: `shutdown requested (${shutdownSignal.mode})`,
+			};
+		}
+
 		const result = await processIssue(group, issueNumber, slug, config, deps, now);
 		if (!result.success) {
 			return { completed: false, failedIssue: issueNumber, error: result.error };

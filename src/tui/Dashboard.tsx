@@ -36,14 +36,21 @@ export function Dashboard({
 	const notifConfig = config?.notifications ?? DEFAULT_CONFIG.notifications;
 	useNotifications(groups, notifConfig);
 
-	const { activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay, error } =
-		useKeyboard({
-			groups,
-			baseDir,
-			initialState,
-			onTakeover,
-			onQuit,
-		});
+	const {
+		activePanel,
+		selectedGroupIndex,
+		selectedIssueIndex,
+		screenMode,
+		overlay,
+		error,
+		shutdownStatus,
+	} = useKeyboard({
+		groups,
+		baseDir,
+		initialState,
+		onTakeover,
+		onQuit,
+	});
 
 	const selectedGroup = groups[selectedGroupIndex] ?? null;
 
@@ -81,7 +88,12 @@ export function Dashboard({
 					<Text color="red">{error}</Text>
 				</Box>
 			)}
-			<Footer activePanel={activePanel} screenMode={screenMode} overlay={overlay} />
+			<Footer
+				activePanel={activePanel}
+				screenMode={screenMode}
+				overlay={overlay}
+				shutdownStatus={shutdownStatus}
+			/>
 		</Box>
 	);
 }

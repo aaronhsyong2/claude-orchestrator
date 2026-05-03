@@ -3,7 +3,9 @@ import * as fs from 'node:fs';
 import { configExists, promptOverwrite, writeDefaultConfig } from './config.js';
 import { acquireLock, installSignalHandlers, releaseLock } from './lock.js';
 import { orchestrate } from './orchestrate.js';
+import { hasExistingState } from './resume.js';
 import { clearRuntimeState } from './runtime.js';
+import { clearShutdownFile, writeShutdownFile } from './shutdown.js';
 import { printStatus } from './status.js';
 import { launchDashboard } from './tui/launch.js';
 
@@ -60,11 +62,32 @@ async function handleStart(args: readonly string[]): Promise<void> {
 	}
 
 	acquireLock();
-	installSignalHandlers();
+	clearShutdownFile();
+	installSignalHandlers(() => {
+		// SIGINT/SIGTERM triggers graceful shutdown via IPC signal file
+		try {
+			writeShutdownFile('graceful');
+		} catch (err) {
+			process.stderr.write(
+				`[cli] failed to write shutdown file: ${err instanceof Error ? err.message : String(err)}\n`,
+			);
+		}
+		// Don't exit — let scheduler see the file and drain gracefully
+	});
 	process.stdout.write(`Acquired lock (.orchestrator/lock, PID ${process.pid})\n`);
 
+	if (!fresh && hasExistingState()) {
+		process.stdout.write('Detected previous state -- will reconcile and resume.\n');
+	}
+
 	try {
-		const result = await orchestrate(planPath, (msg) => process.stdout.write(`${msg}\n`));
+		const result = await orchestrate(planPath, (msg) => process.stdout.write(`${msg}\n`), {
+			onShutdown: (mode) => {
+				process.stdout.write(`Shutdown (${mode}) complete.\n`);
+				releaseLock();
+				process.exit(0);
+			},
+		});
 		const failed = result.results.filter((r) => !r.completed);
 		if (failed.length > 0) {
 			process.stderr.write(`Error: ${failed.length} group(s) failed\n`);

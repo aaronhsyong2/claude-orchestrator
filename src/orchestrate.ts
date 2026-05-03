@@ -2,7 +2,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { loadConfig as realLoadConfig } from './config.js';
 import { parsePlan as realParsePlan } from './parser.js';
+import { hasExistingState, resumeFromState } from './resume.js';
 import { assignWork, getReadyGroups } from './scheduler.js';
+import type { WorkerRegistry } from './shutdown.js';
+import { createWorkerRegistry, forceKillAll, readShutdownFile } from './shutdown.js';
 import {
 	deleteContext as realDeleteContext,
 	readContext as realReadContext,
@@ -14,10 +17,13 @@ import { notify as realNotify } from './tui/notification-service.js';
 import type {
 	AssignWorkResult,
 	ExecResult,
+	GitBranchState,
 	GroupStatus,
 	OrchestratorConfig,
 	PlanData,
 	SchedulerDeps,
+	ShutdownMode,
+	WorkerEvent,
 } from './types.js';
 import { verify as realVerify } from './verification.js';
 import {
@@ -33,6 +39,70 @@ export interface OrchestrateOverrides {
 	readonly loadConfig?: () => OrchestratorConfig;
 	readonly parsePlan?: (filePath: string) => Promise<PlanData>;
 	readonly deps?: SchedulerDeps;
+	readonly onShutdown?: (mode: ShutdownMode) => void;
+}
+
+async function buildGitState(
+	execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>,
+): Promise<GitBranchState> {
+	const branchResult = await execCommand(
+		'git',
+		['branch', '--list', '--format=%(refname:short)'],
+		'.',
+	);
+	if (branchResult.exitCode !== 0) {
+		throw new Error(`git branch failed (exit ${branchResult.exitCode}): ${branchResult.stderr}`);
+	}
+	const branches = branchResult.stdout
+		.split('\n')
+		.map((b) => b.trim())
+		.filter((b) => b.length > 0);
+
+	const branchHasCommits = new Map<string, boolean>();
+	for (const branch of branches) {
+		const logResult = await execCommand('git', ['log', '--oneline', '-1', branch], '.');
+		branchHasCommits.set(branch, logResult.exitCode === 0 && logResult.stdout.trim().length > 0);
+	}
+
+	return { branches, branchHasCommits };
+}
+
+function wrapSpawnWorker(
+	original: SchedulerDeps['spawnWorker'],
+	registry: WorkerRegistry,
+): SchedulerDeps['spawnWorker'] {
+	return (issue, groupSlug, worktreePath, onEvent, contextContent?) => {
+		let pid = -1;
+		const wrappedOnEvent = (event: WorkerEvent): void => {
+			if (event.event === 'exited') {
+				registry.deregister(pid);
+			}
+			onEvent(event);
+		};
+		const handle = original(issue, groupSlug, worktreePath, wrappedOnEvent, contextContent);
+		pid = handle.pid;
+		registry.register(pid);
+		return handle;
+	};
+}
+
+function wrapSpawnDirectWorker(
+	original: SchedulerDeps['spawnDirectWorker'],
+	registry: WorkerRegistry,
+): SchedulerDeps['spawnDirectWorker'] {
+	return (id, groupSlug, worktreePath, onEvent, prompt) => {
+		let pid = -1;
+		const wrappedOnEvent = (event: WorkerEvent): void => {
+			if (event.event === 'exited') {
+				registry.deregister(pid);
+			}
+			onEvent(event);
+		};
+		const handle = original(id, groupSlug, worktreePath, wrappedOnEvent, prompt);
+		pid = handle.pid;
+		registry.register(pid);
+		return handle;
+	};
 }
 
 export async function orchestrate(
@@ -44,8 +114,45 @@ export async function orchestrate(
 	const plan = await (overrides?.parsePlan ?? realParsePlan)(planPath);
 
 	const rawDeps = overrides?.deps ?? buildRealDeps();
-	const deps = wrapWithProgress(rawDeps, onProgress);
+	const progressDeps = wrapWithProgress(rawDeps, onProgress);
+
+	// Create worker PID registry for force shutdown
+	const registry = createWorkerRegistry();
+
+	// Build shouldShutdown callback for scheduler
+	const shouldShutdown = () => readShutdownFile();
+
+	// Resume detection: reconcile state with git before scheduling
 	const mergedPRs = new Set<number>();
+	if (hasExistingState()) {
+		onProgress('Resuming from previous state -- reconciling with git...');
+		try {
+			const gitState = await buildGitState(rawDeps.execCommand ?? realExecCommand);
+			const resumeResult = await resumeFromState(gitState, rawDeps.execCommand ?? realExecCommand);
+			for (const correction of resumeResult.corrections) {
+				onProgress(`  Reconciled: ${correction.slug} -- ${correction.reason}`);
+			}
+			for (const mergedBranch of resumeResult.mergedBranches) {
+				const matchingGroup = plan.groups.find((g) => g.branch === mergedBranch);
+				if (matchingGroup) {
+					mergedPRs.add(matchingGroup.pr_number);
+					onProgress(`  Already merged: PR #${matchingGroup.pr_number} (${mergedBranch})`);
+				}
+			}
+		} catch (err) {
+			process.stderr.write(
+				`[orchestrate] resume failed, continuing with fresh state: ${err instanceof Error ? err.message : String(err)}\n`,
+			);
+		}
+	}
+
+	// Wire shutdown + registry into deps
+	const trackedDeps: SchedulerDeps = {
+		...progressDeps,
+		shouldShutdown,
+		spawnWorker: wrapSpawnWorker(progressDeps.spawnWorker, registry),
+		spawnDirectWorker: wrapSpawnDirectWorker(progressDeps.spawnDirectWorker, registry),
+	};
 
 	const ready = getReadyGroups(plan, mergedPRs);
 	const capped = ready.slice(0, config.max_concurrent_agents);
@@ -53,7 +160,21 @@ export async function orchestrate(
 		onProgress(`Starting PR ${group.pr_number}: ${group.title} [${group.branch}]`);
 	}
 
-	return assignWork(plan, mergedPRs, config, deps);
+	const result = await assignWork(plan, mergedPRs, config, trackedDeps);
+
+	// Check if any group was interrupted by shutdown
+	const shutdownGroup = result.results.find((r) => r.shutdown);
+	if (shutdownGroup) {
+		const signal = readShutdownFile();
+		if (signal?.mode === 'force') {
+			await forceKillAll(registry, rawDeps.killWorker ?? realKillWorker);
+			overrides?.onShutdown?.('force');
+		} else {
+			overrides?.onShutdown?.('graceful');
+		}
+	}
+
+	return result;
 }
 
 const execFileAsync = promisify(execFile);

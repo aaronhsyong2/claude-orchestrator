@@ -1,11 +1,12 @@
 import { Box, Text } from 'ink';
 import type { ReactNode } from 'react';
-import type { OverlayMode, ScreenMode } from './types.js';
+import type { OverlayMode, ScreenMode, ShutdownStatus } from './types.js';
 
 interface FooterProps {
 	readonly activePanel: number;
 	readonly screenMode: ScreenMode;
 	readonly overlay: OverlayMode;
+	readonly shutdownStatus: ShutdownStatus;
 }
 
 const NEXT_MODE: Record<ScreenMode, ScreenMode> = {
@@ -37,7 +38,35 @@ function getHints(
 	return hints;
 }
 
-export function Footer({ activePanel, screenMode, overlay }: FooterProps): ReactNode {
+export function Footer({
+	activePanel,
+	screenMode,
+	overlay,
+	shutdownStatus,
+}: FooterProps): ReactNode {
+	if (shutdownStatus === 'exited') {
+		return (
+			<Box>
+				<Text color="green">Orchestrator exited. Dashboard closing...</Text>
+			</Box>
+		);
+	}
+	if (shutdownStatus === 'force') {
+		return (
+			<Box>
+				<Text color="yellow">Force killing workers...</Text>
+			</Box>
+		);
+	}
+	if (shutdownStatus === 'graceful') {
+		return (
+			<Box>
+				<Text color="cyan">Shutting down -- waiting for workers... (q again to force kill)</Text>
+			</Box>
+		);
+	}
+
+	// Normal mode -- existing hint logic
 	const hints = getHints(activePanel, screenMode, overlay);
 	return (
 		<Box>

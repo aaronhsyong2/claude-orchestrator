@@ -608,3 +608,148 @@ describe('onMerge', () => {
 		expect(result.assigned).toBe(0);
 	});
 });
+
+// --- processGroup shutdown checkpoint ---
+
+describe('processGroup shutdown', () => {
+	it('when shouldShutdown returns graceful signal, loop stops before next issue', async () => {
+		let callCount = 0;
+		const group = makeGroup({
+			pr_number: 1,
+			branch: 'feat/shutdown',
+			issues: [
+				{ number: 10, title: 'First', status: 'Open', blocked_by: [] },
+				{ number: 11, title: 'Second', status: 'Open', blocked_by: [] },
+			],
+		});
+
+		const spawnOrder: string[] = [];
+		const deps = createMockDeps({
+			shouldShutdown: () => {
+				callCount++;
+				// Return null on first call (before issue 10), signal on second (before issue 11)
+				if (callCount >= 2) {
+					return { mode: 'graceful' as const, requested_at: NOW };
+				}
+				return null;
+			},
+			spawnWorker: vi.fn(
+				(issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+					spawnOrder.push(issue);
+					process.nextTick(() => {
+						onEvent({
+							event: 'message',
+							data: { type: 'result', result: '[]', is_error: false },
+						});
+						onEvent({ event: 'exited', data: 0 });
+					});
+					return { id: `test-${issue}`, issue, groupSlug: 'feat-shutdown', pid: 123 };
+				},
+			),
+		});
+
+		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		// Only the first issue should be processed
+		expect(spawnOrder).toEqual(['10']);
+		expect(result.results[0]?.completed).toBe(false);
+		expect(result.results[0]?.shutdown).toBe(true);
+	});
+
+	it('status written with step_result interrupted on shutdown', async () => {
+		const group = makeGroup({
+			pr_number: 1,
+			branch: 'feat/int',
+			issues: [{ number: 10, title: 'Issue', status: 'Open', blocked_by: [] }],
+		});
+
+		const deps = createMockDeps({
+			shouldShutdown: () => ({ mode: 'graceful' as const, requested_at: NOW }),
+		});
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		const writeStatusMock = vi.mocked(deps.writeGroupStatus);
+		const interruptedCalls = writeStatusMock.mock.calls.filter(
+			(call) => call[1].step_result === 'interrupted',
+		);
+		expect(interruptedCalls.length).toBeGreaterThanOrEqual(1);
+	});
+
+	it('current issue completes before shutdown check (no mid-step interruption)', async () => {
+		let shouldShutdownCallCount = 0;
+		const group = makeGroup({
+			pr_number: 1,
+			branch: 'feat/complete-first',
+			issues: [
+				{ number: 10, title: 'First', status: 'Open', blocked_by: [] },
+				{ number: 11, title: 'Second', status: 'Open', blocked_by: [] },
+			],
+		});
+
+		const spawnOrder: string[] = [];
+		const deps = createMockDeps({
+			shouldShutdown: () => {
+				shouldShutdownCallCount++;
+				// Signal shutdown before second issue
+				if (shouldShutdownCallCount >= 2) {
+					return { mode: 'graceful' as const, requested_at: NOW };
+				}
+				return null;
+			},
+			spawnWorker: vi.fn(
+				(issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+					spawnOrder.push(issue);
+					process.nextTick(() => {
+						onEvent({
+							event: 'message',
+							data: { type: 'result', result: '[]', is_error: false },
+						});
+						onEvent({ event: 'exited', data: 0 });
+					});
+					return { id: `test-${issue}`, issue, groupSlug: 'feat-complete-first', pid: 123 };
+				},
+			),
+		});
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		// First issue completed fully, second was not started
+		expect(spawnOrder).toEqual(['10']);
+	});
+
+	it('when shouldShutdown is undefined (backward compat), loop runs normally', async () => {
+		const group = makeGroup({
+			pr_number: 1,
+			branch: 'feat/no-shutdown',
+			issues: [
+				{ number: 10, title: 'First', status: 'Open', blocked_by: [] },
+				{ number: 11, title: 'Second', status: 'Open', blocked_by: [] },
+			],
+		});
+
+		const spawnOrder: string[] = [];
+		const deps = createMockDeps({
+			// shouldShutdown is NOT provided (undefined)
+			spawnWorker: vi.fn(
+				(issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+					spawnOrder.push(issue);
+					process.nextTick(() => {
+						onEvent({
+							event: 'message',
+							data: { type: 'result', result: '[]', is_error: false },
+						});
+						onEvent({ event: 'exited', data: 0 });
+					});
+					return { id: `test-${issue}`, issue, groupSlug: 'feat-no-shutdown', pid: 123 };
+				},
+			),
+		});
+
+		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		// Both issues processed
+		expect(spawnOrder.slice(0, 2)).toEqual(['10', '11']);
+		expect(result.results[0]?.completed).toBe(true);
+	});
+});

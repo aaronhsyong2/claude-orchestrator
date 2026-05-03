@@ -17,6 +17,8 @@ export interface TakeoverRequest {
 	readonly branch: string;
 }
 
+export type ShutdownStatus = 'none' | 'graceful' | 'force' | 'exited';
+
 export type PanelIndex = 0 | 1 | 2;
 
 export interface DashboardState {
@@ -25,4 +27,5 @@ export interface DashboardState {
 	readonly selectedIssueIndex: number;
 	readonly screenMode: ScreenMode;
 	readonly overlay: OverlayMode;
+	readonly shutdownStatus: ShutdownStatus;
 }

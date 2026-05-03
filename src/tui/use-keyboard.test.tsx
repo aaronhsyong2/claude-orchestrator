@@ -2,6 +2,7 @@ import { Text } from 'ink';
 import { render } from 'ink-testing-library';
 import React, { act, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { writeShutdownFile } from '../shutdown.js';
 import type { GroupStatus } from '../types.js';
 import type { DashboardState, TakeoverRequest } from './types.js';
 import { useKeyboard } from './use-keyboard.js';
@@ -9,6 +10,17 @@ import { useKeyboard } from './use-keyboard.js';
 // Mock worktree-manager and node:fs for path resolution and existence checks
 vi.mock('../worktree-manager.js', () => ({
 	getWorktreePath: vi.fn((branch: string, _baseDir?: string) => `/worktrees/${branch}`),
+}));
+
+// Mock shutdown and lock modules used by use-keyboard
+vi.mock('../shutdown.js', () => ({
+	writeShutdownFile: vi.fn(),
+	readShutdownFile: vi.fn(() => null),
+}));
+
+vi.mock('../lock.js', () => ({
+	readLock: vi.fn(() => null),
+	isProcessAlive: vi.fn(() => false),
 }));
 
 const mockExistsSync = vi.fn((_path?: unknown) => true);
@@ -89,6 +101,7 @@ describe('useKeyboard', () => {
 			selectedIssueIndex: 1,
 			screenMode: 'half',
 			overlay: 'deps',
+			shutdownStatus: 'none',
 		};
 		const { lastFrame } = render(React.createElement(TestHarness, { groups, initialState }));
 		expect(lastFrame()).toContain('panel:1');
@@ -290,14 +303,16 @@ describe('useKeyboard', () => {
 	});
 
 	describe('q key (quit)', () => {
-		it('calls onQuit when provided', async () => {
+		it('writes graceful shutdown file on first q press', async () => {
 			const groups = [makeGroup()];
 			const onQuit = vi.fn();
 			const { stdin } = render(React.createElement(TestHarness, { groups, onQuit }));
 
 			await press(stdin, 'q');
 
-			expect(onQuit).toHaveBeenCalledOnce();
+			// q now writes shutdown file instead of calling onQuit directly
+			expect(writeShutdownFile).toHaveBeenCalledWith('graceful', '.');
+			expect(onQuit).not.toHaveBeenCalled();
 		});
 	});
 });
