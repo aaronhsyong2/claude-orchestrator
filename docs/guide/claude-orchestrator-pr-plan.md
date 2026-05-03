@@ -6,7 +6,7 @@ tags:
   - orchestrator
 created: 2026-05-02
 updated: 2026-05-04
-status: active
+status: completed
 related:
   - "[Parent Epic: #1](https://github.com/aaronhsyong2/claude-orchestrator/issues/1)"
   - "[PRD v2](claude-orchestrator-prd-v2.md)"
@@ -96,11 +96,12 @@ Logical grouping of issues from the Claude Orchestrator epic (#1) into PRs, orde
 
 ## PR 7: Shutdown + Resume
 
-**Branch:** `feat/shutdown-resume`
-**Status:** pending
+**Branch:** `feat/resilience`
+**Status:** merged (PR #25)
+**Review:** [4 rounds, all critical/high issues resolved](../reviews/pr-025-shutdown-resume.md)
 
 | Issue | Title                                                            | Status |
 | ----- | ---------------------------------------------------------------- | ------ |
-| #18   | Graceful shutdown + auto-resume from state + git cross-reference | Open   |
+| #18   | Graceful shutdown + auto-resume from state + git cross-reference | Closed |
 
 > Depends on: PR 4
