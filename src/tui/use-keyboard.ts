@@ -1,10 +1,16 @@
+import { existsSync } from 'node:fs';
 import { useApp, useInput } from 'ink';
 import { useEffect, useState } from 'react';
 import type { GroupStatus } from '../types.js';
-import type { OverlayMode, ScreenMode } from './types.js';
+import { getWorktreePath } from '../worktree-manager.js';
+import type { DashboardState, OverlayMode, ScreenMode, TakeoverRequest } from './types.js';
 
 interface UseKeyboardOptions {
 	readonly groups: readonly GroupStatus[];
+	readonly baseDir?: string;
+	readonly initialState?: DashboardState;
+	readonly onTakeover?: (request: TakeoverRequest, state: DashboardState) => void;
+	readonly onQuit?: () => void;
 }
 
 interface KeyboardState {
@@ -13,15 +19,27 @@ interface KeyboardState {
 	readonly selectedIssueIndex: number;
 	readonly screenMode: ScreenMode;
 	readonly overlay: OverlayMode;
+	readonly error: string | null;
 }
 
-export function useKeyboard({ groups }: UseKeyboardOptions): KeyboardState {
+export function useKeyboard({
+	groups,
+	baseDir = '.',
+	initialState,
+	onTakeover,
+	onQuit,
+}: UseKeyboardOptions): KeyboardState {
 	const { exit } = useApp();
-	const [activePanel, setActivePanel] = useState(0);
-	const [selectedGroupIndex, setSelectedGroupIndex] = useState(0);
-	const [selectedIssueIndex, setSelectedIssueIndex] = useState(0);
-	const [screenMode, setScreenMode] = useState<ScreenMode>('normal');
-	const [overlay, setOverlay] = useState<OverlayMode>('none');
+	const [activePanel, setActivePanel] = useState(initialState?.activePanel ?? 0);
+	const [selectedGroupIndex, setSelectedGroupIndex] = useState(
+		initialState?.selectedGroupIndex ?? 0,
+	);
+	const [selectedIssueIndex, setSelectedIssueIndex] = useState(
+		initialState?.selectedIssueIndex ?? 0,
+	);
+	const [screenMode, setScreenMode] = useState<ScreenMode>(initialState?.screenMode ?? 'normal');
+	const [overlay, setOverlay] = useState<OverlayMode>(initialState?.overlay ?? 'none');
+	const [error, setError] = useState<string | null>(null);
 
 	const groupCount = groups.length;
 	const selectedGroup = groups[selectedGroupIndex];
@@ -48,6 +66,10 @@ export function useKeyboard({ groups }: UseKeyboardOptions): KeyboardState {
 			setSelectedIssueIndex(issueCount - 1);
 		}
 	}, [issueCount, selectedIssueIndex]);
+
+	function currentState(): DashboardState {
+		return { activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay };
+	}
 
 	function navigateDown(): void {
 		if (activePanel === 0) {
@@ -111,11 +133,41 @@ export function useKeyboard({ groups }: UseKeyboardOptions): KeyboardState {
 			return;
 		}
 
+		if (key.return && activePanel === 0) {
+			const group = groups[selectedGroupIndex];
+			if (!group) return;
+			const worktreePath = getWorktreePath(group.branch, baseDir);
+			if (!existsSync(worktreePath)) {
+				setError(`Worktree not found: ${group.branch}`);
+				setTimeout(() => setError(null), 3000);
+				return;
+			}
+			onTakeover?.({ mode: 'shell', worktreePath, branch: group.branch }, currentState());
+			return;
+		}
+
+		if (input === 'v' && activePanel === 0) {
+			const group = groups[selectedGroupIndex];
+			if (!group) return;
+			const worktreePath = getWorktreePath(group.branch, baseDir);
+			if (!existsSync(worktreePath)) {
+				setError(`Worktree not found: ${group.branch}`);
+				setTimeout(() => setError(null), 3000);
+				return;
+			}
+			onTakeover?.({ mode: 'nvim', worktreePath, branch: group.branch }, currentState());
+			return;
+		}
+
 		if (input === 'q') {
-			exit();
+			if (onQuit) {
+				onQuit();
+			} else {
+				exit();
+			}
 			return;
 		}
 	});
 
-	return { activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay };
+	return { activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay, error };
 }

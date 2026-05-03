@@ -28,6 +28,7 @@ function getHints(
 	const hints: (readonly [string, string])[] = [
 		['1-3', 'panel'],
 		...(jkLabel ? [['j/k', jkLabel] as const] : []),
+		...(activePanel === 0 ? [['↵', 'shell'] as const, ['v', 'nvim'] as const] : []),
 		['+', `layout:${NEXT_MODE[screenMode]}`],
 		['d', overlay === 'deps' ? 'deps:on' : 'deps'],
 		['l', overlay === 'logs' ? 'logs:on' : 'logs'],
