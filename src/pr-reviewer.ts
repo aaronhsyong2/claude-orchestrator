@@ -164,11 +164,9 @@ export async function prReview(
 				cycle,
 				`fix worker exited with code ${fixExitCode}`,
 			);
-			// Clean dirty tree so next cycle starts from a known baseline
-			const resetResult = await deps.execCommand('git', ['checkout', '--', '.'], worktreePath);
-			if (resetResult.exitCode !== 0) {
-				process.stderr.write(`[pr-reviewer] git checkout failed: ${resetResult.stderr}\n`);
-			}
+			// Reset tracked files and remove untracked files the fixer may have added
+			await deps.execCommand('git', ['checkout', '--', '.'], worktreePath);
+			await deps.execCommand('git', ['clean', '-fd'], worktreePath);
 			continue;
 		}
 
@@ -182,15 +180,9 @@ export async function prReview(
 				cycle,
 				`verification failed: ${verifyResult.failedStep}${verifyResult.error ? `\n\n${verifyResult.error}` : ''}`,
 			);
-			// Reset dirty tree so next cycle starts clean
-			const verifyResetResult = await deps.execCommand(
-				'git',
-				['checkout', '--', '.'],
-				worktreePath,
-			);
-			if (verifyResetResult.exitCode !== 0) {
-				process.stderr.write(`[pr-reviewer] git checkout failed: ${verifyResetResult.stderr}\n`);
-			}
+			// Reset tracked files and remove untracked files the fixer may have added
+			await deps.execCommand('git', ['checkout', '--', '.'], worktreePath);
+			await deps.execCommand('git', ['clean', '-fd'], worktreePath);
 			continue;
 		}
 
