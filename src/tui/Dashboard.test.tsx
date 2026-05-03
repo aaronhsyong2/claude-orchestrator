@@ -98,6 +98,38 @@ describe('PRGroupsPanel', () => {
 		);
 		expect(lastFrame()).toContain('pr-5');
 	});
+
+	it('shows ⚠ badge when group has needs-input', () => {
+		const groups = [makeGroup({ step: 'idle', step_result: 'needs-input' })];
+		const { lastFrame } = render(
+			React.createElement(PRGroupsPanel, { groups, active: true, selectedIndex: 0 }),
+		);
+		expect(lastFrame()).toContain('\u26A0');
+	});
+
+	it('shows ⏸ badge when group has blocked', () => {
+		const groups = [makeGroup({ step: 'idle', step_result: 'blocked' })];
+		const { lastFrame } = render(
+			React.createElement(PRGroupsPanel, { groups, active: true, selectedIndex: 0 }),
+		);
+		expect(lastFrame()).toContain('\u23F8');
+	});
+
+	it('shows ✓ badge when group has pass result', () => {
+		const groups = [makeGroup({ step: 'idle', step_result: 'pass' })];
+		const { lastFrame } = render(
+			React.createElement(PRGroupsPanel, { groups, active: true, selectedIndex: 0 }),
+		);
+		expect(lastFrame()).toContain('\u2713');
+	});
+
+	it('shows ⚙ for active step regardless of step_result', () => {
+		const groups = [makeGroup({ step: 'coding', step_result: '' })];
+		const { lastFrame } = render(
+			React.createElement(PRGroupsPanel, { groups, active: true, selectedIndex: 0 }),
+		);
+		expect(lastFrame()).toContain('\u2699');
+	});
 });
 
 describe('IssuesPanel', () => {

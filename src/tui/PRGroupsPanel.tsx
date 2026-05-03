@@ -2,7 +2,7 @@ import { Box, Text } from 'ink';
 import type { ReactNode } from 'react';
 import type { GroupStatus } from '../types.js';
 import { Panel } from './Panel.js';
-import { getGroupIcon } from './status-icon.js';
+import { getGroupIcon, getStatusIcon } from './status-icon.js';
 
 interface PRGroupsPanelProps {
 	readonly groups: readonly GroupStatus[];
@@ -24,11 +24,14 @@ export function PRGroupsPanel({ groups, active, selectedIndex }: PRGroupsPanelPr
 	return (
 		<Panel title="PR Groups" active={active}>
 			{groups.map((group, i) => {
-				const icon = getGroupIcon(
-					group.issues_completed.length,
-					group.issues_remaining.length,
-					group.step,
-				);
+				const icon =
+					group.step === 'idle' && group.step_result
+						? getStatusIcon(group.step, group.step_result)
+						: getGroupIcon(
+								group.issues_completed.length,
+								group.issues_remaining.length,
+								group.step,
+							);
 				const selected = i === selectedIndex;
 				const total = group.issues_completed.length + group.issues_remaining.length;
 				const done = group.issues_completed.length;

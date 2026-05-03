@@ -17,7 +17,7 @@ function listGroupSlugs(baseDir: string): readonly string[] {
 
 let nextEventId = 1;
 
-function deriveActivity(
+export function deriveActivity(
 	prev: readonly GroupStatus[],
 	next: readonly GroupStatus[],
 	now: string,

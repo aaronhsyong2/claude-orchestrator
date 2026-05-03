@@ -11,9 +11,9 @@ vi.mock('../worktree-manager.js', () => ({
 	getWorktreePath: vi.fn((branch: string, _baseDir?: string) => `/worktrees/${branch}`),
 }));
 
-const mockExistsSync = vi.fn(() => true);
+const mockExistsSync = vi.fn((_path?: unknown) => true);
 vi.mock('node:fs', () => ({
-	existsSync: (path: string) => mockExistsSync(path),
+	existsSync: (p: string) => mockExistsSync(p),
 }));
 
 function makeGroup(overrides?: Partial<GroupStatus>): GroupStatus {
