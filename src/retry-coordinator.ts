@@ -82,9 +82,8 @@ export async function executeWithRetry(
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			const stepResult = `worker error: ${message}`;
-			const action = classifyFailure(stepResult);
 
-			if (action === 'needs-input') {
+			if (classifyFailure(stepResult) === 'needs-input') {
 				return escalate(issue, groupSlug, currentStatus, stepResult, config, deps, attempt, now);
 			}
 
@@ -101,7 +100,6 @@ export async function executeWithRetry(
 					now,
 				);
 			}
-
 			appendContext(deps, groupSlug, issue, attempt, stepResult);
 			continue;
 		}
@@ -122,7 +120,6 @@ export async function executeWithRetry(
 					now,
 				);
 			}
-
 			appendContext(deps, groupSlug, issue, attempt, stepResult);
 			continue;
 		}

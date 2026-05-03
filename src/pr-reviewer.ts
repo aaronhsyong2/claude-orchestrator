@@ -1,6 +1,7 @@
 import {
 	appendReviewContext,
 	buildRulesSection,
+	isBlocking,
 	parseJsonArray,
 	spawnAndCapture,
 	spawnAndWaitForExit,
@@ -52,7 +53,7 @@ If no issues found, output an empty array: \`[]\``;
 }
 
 export function buildPRFixPrompt(comments: readonly PRComment[]): string {
-	const blocking = comments.filter((c) => c.severity === 'critical' || c.severity === 'high');
+	const blocking = comments.filter((c) => isBlocking(c.severity));
 
 	const items = blocking
 		.map(
@@ -88,7 +89,7 @@ export function parsePRComments(output: string): readonly PRComment[] {
 }
 
 export function hasBlockingComments(comments: readonly PRComment[]): boolean {
-	return comments.some((c) => c.severity === 'critical' || c.severity === 'high');
+	return comments.some((c) => isBlocking(c.severity));
 }
 
 // --- Context key ---
@@ -230,7 +231,7 @@ export async function prReview(
 		}
 
 		const commentsSummary = comments
-			.filter((c) => c.severity === 'critical' || c.severity === 'high')
+			.filter((c) => isBlocking(c.severity))
 			.map((c) => `- [${c.severity}] ${c.file}: ${c.body}`)
 			.join('\n');
 		appendReviewContext(

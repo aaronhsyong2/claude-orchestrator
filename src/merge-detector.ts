@@ -80,24 +80,13 @@ export function startMergeDetector(
 			if (stopped || completed) return;
 
 			if (result.exitCode !== 0) {
-				consecutiveFailures++;
-				if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-					transitionToGitFallback();
-					return;
-				}
-				schedulePoll();
+				handleGitHubFailure();
 				return;
 			}
 
 			const parsed = parsePRState(result.stdout);
 			if (parsed === null) {
-				// Malformed JSON — count as failure
-				consecutiveFailures++;
-				if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-					transitionToGitFallback();
-					return;
-				}
-				schedulePoll();
+				handleGitHubFailure();
 				return;
 			}
 
@@ -119,12 +108,7 @@ export function startMergeDetector(
 			if (stopped || completed) return;
 			const msg = err instanceof Error ? err.message : String(err);
 			process.stderr.write(`[merge-detector] PR #${prNumber}: poll error: ${msg}\n`);
-			consecutiveFailures++;
-			if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-				transitionToGitFallback();
-				return;
-			}
-			schedulePoll();
+			handleGitHubFailure();
 		}
 	}
 
@@ -237,6 +221,15 @@ export function startMergeDetector(
 			recoveryTimer = null;
 		}
 		schedulePoll();
+	}
+
+	function handleGitHubFailure(): void {
+		consecutiveFailures++;
+		if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+			transitionToGitFallback();
+		} else {
+			schedulePoll();
+		}
 	}
 
 	function schedulePoll(): void {

@@ -91,6 +91,18 @@ function waitForMerge(
 	});
 }
 
+function notifySafe(
+	deps: SchedulerDeps,
+	slug: string,
+	message: string,
+	config: OrchestratorConfig,
+): void {
+	deps.notify(`${slug}: ${message}`, config.notifications).catch((err) => {
+		const msg = err instanceof Error ? err.message : String(err);
+		process.stderr.write(`[scheduler] notification failed: ${msg}\n`);
+	});
+}
+
 /** Wrap writeGroupStatus to prevent I/O errors from crashing the entire orchestration. */
 function safeWriteStatus(deps: SchedulerDeps, slug: string, data: GroupStatus): void {
 	try {
@@ -278,15 +290,12 @@ async function processGroup(
 				step_result: 'needs-input',
 				last_updated: now(),
 			});
-			deps
-				.notify(
-					`${slug}: self-review found unresolved critical/high findings after ${reviewResult.cycle} cycle(s)`,
-					config.notifications,
-				)
-				.catch((err) => {
-					const msg = err instanceof Error ? err.message : String(err);
-					process.stderr.write(`[scheduler] notification failed: ${msg}\n`);
-				});
+			notifySafe(
+				deps,
+				slug,
+				`self-review found unresolved critical/high findings after ${reviewResult.cycle} cycle(s)`,
+				config,
+			);
 			return {
 				completed: false,
 				error: 'self-review: unresolved critical/high findings',
@@ -348,23 +357,16 @@ async function processGroup(
 				step_result: 'needs-input',
 				last_updated: now(),
 			});
-			deps
-				.notify(
-					`${slug}: PR #${prNumber} has unresolved comments after ${prReviewResult.cycle} cycle(s)`,
-					config.notifications,
-				)
-				.catch((err) => {
-					const msg = err instanceof Error ? err.message : String(err);
-					process.stderr.write(`[scheduler] notification failed: ${msg}\n`);
-				});
+			notifySafe(
+				deps,
+				slug,
+				`PR #${prNumber} has unresolved comments after ${prReviewResult.cycle} cycle(s)`,
+				config,
+			);
 			return { completed: false, error: 'pr-review: unresolved comments' };
 		}
 
-		// PR approved — notify user
-		deps.notify(`${slug}: PR #${prNumber} ready to merge`, config.notifications).catch((err) => {
-			const msg = err instanceof Error ? err.message : String(err);
-			process.stderr.write(`[scheduler] notification failed: ${msg}\n`);
-		});
+		notifySafe(deps, slug, `PR #${prNumber} ready to merge`, config);
 
 		safeWriteStatus(deps, slug, {
 			...freshStatus(slug, group, deps, now),
@@ -408,10 +410,7 @@ async function processGroup(
 			step_result: 'needs-input',
 			last_updated: now(),
 		});
-		deps.notify(`${slug}: ${reason}`, config.notifications).catch((err) => {
-			const msg = err instanceof Error ? err.message : String(err);
-			process.stderr.write(`[scheduler] notification failed: ${msg}\n`);
-		});
+		notifySafe(deps, slug, reason, config);
 		return { completed: false, error: reason };
 	} catch (err) {
 		// Unexpected error during PR lifecycle — cleanup worktree

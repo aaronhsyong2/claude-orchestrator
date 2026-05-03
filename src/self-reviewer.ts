@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import {
 	appendReviewContext,
 	buildRulesSection,
+	isBlocking,
 	parseJsonArray,
 	spawnAndCapture,
 	spawnAndWaitForExit,
@@ -48,7 +49,7 @@ If no issues found, output an empty array: \`[]\``;
 }
 
 export function buildFixPrompt(findings: readonly Finding[]): string {
-	const blocking = findings.filter((f) => f.severity === 'critical' || f.severity === 'high');
+	const blocking = findings.filter((f) => isBlocking(f.severity));
 
 	const items = blocking
 		.map((f, i) => `${i + 1}. [${f.severity.toUpperCase()}] ${f.file}: ${f.description}`)
@@ -75,7 +76,7 @@ export function parseFindings(output: string): readonly Finding[] {
 }
 
 export function hasBlockingFindings(findings: readonly Finding[]): boolean {
-	return findings.some((f) => f.severity === 'critical' || f.severity === 'high');
+	return findings.some((f) => isBlocking(f.severity));
 }
 
 // --- Review context key ---
@@ -260,7 +261,7 @@ export async function selfReview(
 		}
 
 		const findingsSummary = findings
-			.filter((f) => f.severity === 'critical' || f.severity === 'high')
+			.filter((f) => isBlocking(f.severity))
 			.map((f) => `- [${f.severity}] ${f.file}: ${f.description}`)
 			.join('\n');
 		appendReviewContext(

@@ -12,6 +12,10 @@ export const VALID_SEVERITIES: ReadonlySet<string> = new Set<FindingSeverity>([
 	'low',
 ]);
 
+export function isBlocking(severity: string): boolean {
+	return severity === 'critical' || severity === 'high';
+}
+
 // --- Spawn helpers ---
 
 export interface SpawnCaptureResult {
