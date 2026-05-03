@@ -76,11 +76,21 @@ export function releaseLock(baseDir?: string): void {
 	}
 }
 
-export function installSignalHandlers(baseDir?: string): void {
+export function installSignalHandlers(onShutdown?: () => void, baseDir?: string): void {
+	let shuttingDown = false;
+
 	const signalHandler = () => {
-		releaseLock(baseDir);
-		process.exit(0);
+		if (shuttingDown) return; // Prevent re-entrancy (RESEARCH.md pitfall #1)
+		shuttingDown = true;
+		if (onShutdown) {
+			onShutdown();
+		} else {
+			// Fallback: release lock and exit (backward compat)
+			releaseLock(baseDir);
+			process.exit(0);
+		}
 	};
+
 	process.once('SIGINT', signalHandler);
 	process.once('SIGTERM', signalHandler);
 	// Clean up lock on normal exit (e.g., event loop drains)

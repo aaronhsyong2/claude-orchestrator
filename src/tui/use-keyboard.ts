@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import { useApp, useInput } from 'ink';
 import { useEffect, useRef, useState } from 'react';
+import { isProcessAlive, readLock } from '../lock.js';
+import { readShutdownFile, writeShutdownFile } from '../shutdown.js';
 import type { GroupStatus } from '../types.js';
 import { getWorktreePath } from '../worktree-manager.js';
 import type {
@@ -8,6 +10,7 @@ import type {
 	OverlayMode,
 	PanelIndex,
 	ScreenMode,
+	ShutdownStatus,
 	TakeoverRequest,
 } from './types.js';
 
@@ -26,6 +29,7 @@ interface KeyboardState {
 	readonly screenMode: ScreenMode;
 	readonly overlay: OverlayMode;
 	readonly error: string | null;
+	readonly shutdownStatus: ShutdownStatus;
 }
 
 export function useKeyboard({
@@ -46,6 +50,11 @@ export function useKeyboard({
 	const [screenMode, setScreenMode] = useState<ScreenMode>(initialState?.screenMode ?? 'normal');
 	const [overlay, setOverlay] = useState<OverlayMode>(initialState?.overlay ?? 'none');
 	const [error, setError] = useState<string | null>(null);
+	const [shutdownStatus, setShutdownStatus] = useState<ShutdownStatus>(
+		initialState?.shutdownStatus ?? 'none',
+	);
+	const lastQPressRef = useRef<number>(0);
+	const DOUBLE_Q_THRESHOLD_MS = 2000;
 
 	// Auto-dismiss error after 3 seconds
 	useEffect(() => {
@@ -80,17 +89,57 @@ export function useKeyboard({
 		}
 	}, [issueCount, selectedIssueIndex]);
 
+	// Poll lock file after shutdown requested to detect orchestrator exit
+	useEffect(() => {
+		if (shutdownStatus === 'none' || shutdownStatus === 'exited') return;
+		const timer = setInterval(() => {
+			const pid = readLock(baseDir);
+			if (pid === null || !isProcessAlive(pid)) {
+				setShutdownStatus('exited');
+				clearInterval(timer);
+				return;
+			}
+			// Re-read shutdown file in case mode upgraded from graceful to force
+			const signal = readShutdownFile(baseDir);
+			if (signal?.mode === 'force' && shutdownStatus === 'graceful') {
+				setShutdownStatus('force');
+			}
+		}, 1000);
+		return () => clearInterval(timer);
+	}, [shutdownStatus, baseDir]);
+
+	// Auto-exit dashboard after showing "exited" status briefly
+	useEffect(() => {
+		if (shutdownStatus !== 'exited') return;
+		const timer = setTimeout(() => {
+			if (onQuit) {
+				onQuit();
+			} else {
+				exit();
+			}
+		}, 1500);
+		return () => clearTimeout(timer);
+	}, [shutdownStatus, onQuit, exit]);
+
 	const stateRef = useRef<DashboardState>({
 		activePanel,
 		selectedGroupIndex,
 		selectedIssueIndex,
 		screenMode,
 		overlay,
+		shutdownStatus,
 	});
 
 	useEffect(() => {
-		stateRef.current = { activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay };
-	}, [activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay]);
+		stateRef.current = {
+			activePanel,
+			selectedGroupIndex,
+			selectedIssueIndex,
+			screenMode,
+			overlay,
+			shutdownStatus,
+		};
+	}, [activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay, shutdownStatus]);
 
 	function currentState(): DashboardState {
 		return stateRef.current;
@@ -165,14 +214,41 @@ export function useKeyboard({
 		}
 
 		if (input === 'q') {
-			if (onQuit) {
-				onQuit();
-			} else {
-				exit();
+			const now = Date.now();
+			const elapsed = now - lastQPressRef.current;
+			lastQPressRef.current = now;
+
+			if (shutdownStatus !== 'none') {
+				// Already in shutdown -- subsequent q within threshold upgrades to force
+				if (elapsed < DOUBLE_Q_THRESHOLD_MS) {
+					try {
+						writeShutdownFile('force', baseDir);
+						setShutdownStatus('force');
+					} catch (err) {
+						setError(`Shutdown failed: ${err instanceof Error ? err.message : String(err)}`);
+					}
+				}
+				return;
+			}
+
+			// First q -- graceful shutdown
+			try {
+				writeShutdownFile('graceful', baseDir);
+				setShutdownStatus('graceful');
+			} catch (err) {
+				setError(`Shutdown failed: ${err instanceof Error ? err.message : String(err)}`);
 			}
 			return;
 		}
 	});
 
-	return { activePanel, selectedGroupIndex, selectedIssueIndex, screenMode, overlay, error };
+	return {
+		activePanel,
+		selectedGroupIndex,
+		selectedIssueIndex,
+		screenMode,
+		overlay,
+		error,
+		shutdownStatus,
+	};
 }

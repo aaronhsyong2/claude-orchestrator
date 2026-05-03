@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
 	acquireLock,
 	getLockPath,
+	installSignalHandlers,
 	isLockStale,
 	isProcessAlive,
 	readLock,
@@ -102,5 +103,18 @@ describe('releaseLock', () => {
 		fs.writeFileSync(getLockPath(tmpDir), '12345\n');
 		releaseLock(tmpDir);
 		expect(readLock(tmpDir)).toBe(12345);
+	});
+});
+
+describe('installSignalHandlers with callback', () => {
+	it('accepts onShutdown callback without error', () => {
+		const callback = () => {};
+		// Should not throw when called with a callback
+		expect(() => installSignalHandlers(callback, tmpDir)).not.toThrow();
+	});
+
+	it('function signature accepts optional parameters', () => {
+		// Verify the function can be called with no arguments
+		expect(() => installSignalHandlers()).not.toThrow();
 	});
 });

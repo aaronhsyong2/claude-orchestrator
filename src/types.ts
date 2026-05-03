@@ -144,6 +144,7 @@ export interface SchedulerDeps {
 	readonly deleteContext: (groupSlug: string, issue: string) => void;
 	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
 	readonly notify: (message: string, config: NotificationConfig) => Promise<void>;
+	readonly shouldShutdown?: () => ShutdownSignal | null;
 }
 
 export interface GroupResult {
@@ -152,6 +153,7 @@ export interface GroupResult {
 	readonly completed: boolean;
 	readonly failedIssue?: number;
 	readonly error?: string;
+	readonly shutdown?: boolean;
 }
 
 export interface AssignWorkResult {
@@ -276,4 +278,13 @@ export type MergeDetectorResult = 'merged' | 'closed' | 'timeout';
 
 export interface MergeDetectorHandle {
 	readonly stop: () => void;
+}
+
+// --- Shutdown types ---
+
+export type ShutdownMode = 'graceful' | 'force';
+
+export interface ShutdownSignal {
+	readonly mode: ShutdownMode;
+	readonly requested_at: string;
 }
