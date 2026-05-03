@@ -133,6 +133,9 @@ export async function prReview(
 		);
 
 		if (reviewCapture.exitCode !== 0) {
+			process.stderr.write(
+				`[pr-reviewer] review worker exited ${reviewCapture.exitCode} for ${groupSlug} cycle ${cycle}\n`,
+			);
 			return { comments: [], approved: false, cycle };
 		}
 

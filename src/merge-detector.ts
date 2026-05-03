@@ -234,6 +234,10 @@ export function startMergeDetector(
 
 	function schedulePoll(): void {
 		if (stopped || completed) return;
+		if (pollTimer !== null) {
+			clearTimeout(pollTimer);
+			pollTimer = null;
+		}
 		const interval = state === 'GITHUB_POLLING' ? githubPollMs : gitFallbackMs;
 		pollTimer = setTimeout(() => {
 			if (state === 'GITHUB_POLLING') {
@@ -246,6 +250,10 @@ export function startMergeDetector(
 
 	function scheduleRecovery(): void {
 		if (stopped || completed) return;
+		if (recoveryTimer !== null) {
+			clearTimeout(recoveryTimer);
+			recoveryTimer = null;
+		}
 		recoveryTimer = setTimeout(() => {
 			void recoveryPoll();
 		}, recoveryPollMs);

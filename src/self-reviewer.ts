@@ -213,6 +213,9 @@ export async function selfReview(
 		);
 
 		if (reviewCapture.exitCode !== 0) {
+			process.stderr.write(
+				`[self-reviewer] review worker exited ${reviewCapture.exitCode} for ${groupSlug} cycle ${cycle}\n`,
+			);
 			return { findings: [], approved: false, cycle };
 		}
 
@@ -263,6 +266,25 @@ export async function selfReview(
 			// Reset tracked files and remove untracked files the fixer may have added
 			await deps.execCommand('git', ['checkout', '--', '.'], worktreePath);
 			await deps.execCommand('git', ['clean', '-fd'], worktreePath);
+			continue;
+		}
+
+		// Stage and commit any changes the fix worker left unstaged/uncommitted
+		await deps.execCommand('git', ['add', '-A'], worktreePath);
+		const commitResult = await deps.execCommand(
+			'git',
+			['commit', '-m', `fix: address review findings (cycle ${cycle})`, '--allow-empty'],
+			worktreePath,
+		);
+		if (commitResult.exitCode !== 0) {
+			appendReviewContext(
+				deps,
+				groupSlug,
+				contextKey,
+				'Review',
+				cycle,
+				`commit failed: ${commitResult.stderr}`,
+			);
 			continue;
 		}
 
