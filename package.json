@@ -18,6 +18,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@inkjs/ui": "^2.0.0",
+    "fullscreen-ink": "^0.1.0",
     "ink": "^7.0.0",
     "react": "^19.0.0"
   },
@@ -25,6 +27,7 @@
     "@biomejs/biome": "^2.0.0",
     "@types/node": "^25.6.0",
     "@types/react": "^19.0.0",
+    "ink-testing-library": "^4.0.0",
     "tsup": "^8.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",
