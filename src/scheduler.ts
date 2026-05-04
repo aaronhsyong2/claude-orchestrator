@@ -6,6 +6,7 @@ import { selfReview } from './self-reviewer.js';
 import { deriveSlug } from './slug.js';
 import type {
 	AssignWorkResult,
+	ExecResult,
 	GroupStatus,
 	MergeDetectorDeps,
 	MergeDetectorResult,
@@ -23,31 +24,43 @@ const DEFAULT_MERGE_WAIT_MS = 24 * 60 * 60 * 1000;
 /** Default timeout for dependency installation: 120 seconds. */
 const DEFAULT_INSTALL_TIMEOUT_MS = 120 * 1000;
 
+type InstallResult =
+	| { readonly success: true }
+	| { readonly success: false; readonly error: string };
+
+/**
+ * Run `pnpm install` in the given worktree directory.
+ *
+ * NOTE: On timeout, the underlying pnpm process is NOT cancelled (execCommand
+ * does not support AbortSignal). The process will continue running until it
+ * exits naturally. Worktree cleanup may race with the orphaned process.
+ */
 async function installDependencies(
 	worktreePath: string,
 	deps: SchedulerDeps,
 	timeoutMs: number = DEFAULT_INSTALL_TIMEOUT_MS,
-): Promise<{ readonly success: boolean; readonly error?: string }> {
+): Promise<InstallResult> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		const result = await Promise.race([
 			deps.execCommand('pnpm', ['install'], worktreePath),
-			new Promise<{ readonly exitCode: 124; readonly stdout: ''; readonly stderr: string }>(
-				(resolve) => {
-					timer = setTimeout(
-						() => resolve({ exitCode: 124, stdout: '', stderr: 'pnpm install timed out' }),
-						timeoutMs,
-					);
-				},
-			),
+			new Promise<ExecResult>((resolve) => {
+				timer = setTimeout(
+					() => resolve({ exitCode: 124, stdout: '', stderr: 'pnpm install timed out' }),
+					timeoutMs,
+				);
+			}),
 		]);
 		if (result.exitCode !== 0) {
 			const detail = result.stderr || result.stdout;
 			return { success: false, error: `install error: ${detail}` };
 		}
 		return { success: true };
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		return { success: false, error: `install error: ${message}` };
 	} finally {
-		if (timer !== undefined) clearTimeout(timer);
+		clearTimeout(timer);
 	}
 }
 
@@ -196,7 +209,7 @@ async function processIssue(
 				...freshStatus(slug, group, deps, now),
 				current_issue: issueNumber,
 				step: 'cloning',
-				step_result: installResult.error ?? 'install error',
+				step_result: installResult.error,
 				last_updated: now(),
 			});
 			return { success: false, error: installResult.error };
@@ -339,15 +352,15 @@ async function processGroup(
 
 	try {
 		// Install dependencies in review worktree
-		const reviewInstallResult = await installDependencies(reviewWorktree.worktreePath, deps);
-		if (!reviewInstallResult.success) {
+		const installResult = await installDependencies(reviewWorktree.worktreePath, deps);
+		if (!installResult.success) {
 			safeWriteStatus(deps, slug, {
 				...freshStatus(slug, group, deps, now),
 				step: 'reviewing',
-				step_result: reviewInstallResult.error ?? 'install error',
+				step_result: installResult.error,
 				last_updated: now(),
 			});
-			return { completed: false, error: `review ${reviewInstallResult.error}` };
+			return { completed: false, error: installResult.error };
 		}
 
 		const reviewResult = await selfReview(

@@ -722,6 +722,90 @@ describe('assignWork', () => {
 		expect(installErrorCalls[0]?.[1].step_result).toContain('ERR_PNPM_LOCKFILE');
 	});
 
+	it('handles pnpm install timeout', async () => {
+		vi.useFakeTimers();
+		const group = makeGroup({ pr_number: 1, branch: 'feat/install-timeout' });
+		const deps = createMockDeps({
+			execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+				if (cmd === 'pnpm' && args[0] === 'install') {
+					// Never resolve — simulate hanging install
+					return new Promise<{ exitCode: number; stdout: string; stderr: string }>(() => {});
+				}
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}),
+		});
+
+		const resultPromise = assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+		// Advance past the 120s default timeout
+		await vi.advanceTimersByTimeAsync(121_000);
+		const result = await resultPromise;
+
+		expect(result.results[0]?.completed).toBe(false);
+		expect(result.results[0]?.error).toContain('pnpm install timed out');
+		expect(deps.removeWorktree).toHaveBeenCalledWith('feat/install-timeout');
+		vi.useRealTimers();
+	});
+
+	it('handles review worktree install failure', async () => {
+		let installCallCount = 0;
+		const group = makeGroup({ pr_number: 1, branch: 'feat/review-install-fail' });
+		const deps = createMockDeps({
+			execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+				if (cmd === 'pnpm' && args[0] === 'install') {
+					installCallCount++;
+					// First call (issue worktree) succeeds, second (review) fails
+					if (installCallCount >= 2) {
+						return { exitCode: 1, stdout: '', stderr: 'REVIEW_INSTALL_FAIL' };
+					}
+					return { exitCode: 0, stdout: '', stderr: '' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('number,url')) {
+					return { exitCode: 1, stdout: '', stderr: 'no PR found' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'create') {
+					return { exitCode: 0, stdout: 'https://github.com/org/repo/pull/1\n', stderr: '' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('state')) {
+					return { exitCode: 0, stdout: '{"state":"MERGED"}', stderr: '' };
+				}
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}),
+		});
+
+		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(result.results[0]?.completed).toBe(false);
+		expect(result.results[0]?.error).toContain('REVIEW_INSTALL_FAIL');
+		// Review worktree cleaned up
+		expect(deps.removeWorktree).toHaveBeenCalledWith('feat/review-install-fail');
+
+		// Status should show reviewing step with install error
+		const writeStatusMock = vi.mocked(deps.writeGroupStatus);
+		const reviewInstallError = writeStatusMock.mock.calls.find(
+			(call) => call[1].step === 'reviewing' && call[1].step_result.includes('install error'),
+		);
+		expect(reviewInstallError).toBeDefined();
+	});
+
+	it('handles execCommand throw in installDependencies', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/install-throw' });
+		const deps = createMockDeps({
+			execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+				if (cmd === 'pnpm' && args[0] === 'install') {
+					throw new Error('ENOENT: pnpm not found');
+				}
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}),
+		});
+
+		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(result.results[0]?.completed).toBe(false);
+		expect(result.results[0]?.error).toContain('pnpm not found');
+		expect(deps.spawnWorker).not.toHaveBeenCalled();
+		expect(deps.removeWorktree).toHaveBeenCalledWith('feat/install-throw');
+	});
+
 	it('handles invalid branch name gracefully', async () => {
 		const group = makeGroup({ pr_number: 1, branch: '' });
 		const deps = createMockDeps();
