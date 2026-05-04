@@ -550,6 +550,265 @@ describe('assignWork', () => {
 		expect(result.results[0]?.error).toContain('crashed 2 times consecutively');
 	});
 
+	it('runs pnpm install after worktree creation before coding', async () => {
+		const callOrder: string[] = [];
+		const group = makeGroup({ pr_number: 1, branch: 'feat/install' });
+		const deps = createMockDeps({
+			createWorktree: vi.fn(() => {
+				callOrder.push('createWorktree');
+				return { branch: 'feat/install', worktreePath: '/tmp/wt-install' };
+			}),
+			execCommand: vi.fn(async (cmd: string, args: readonly string[], _cwd: string) => {
+				if (cmd === 'pnpm' && args[0] === 'install') {
+					callOrder.push('pnpm-install');
+					return { exitCode: 0, stdout: 'installed', stderr: '' };
+				}
+				// gh pr view <branch> --json number,url → no existing PR
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('number,url')) {
+					return { exitCode: 1, stdout: '', stderr: 'no PR found' };
+				}
+				// gh pr create → success
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'create') {
+					return { exitCode: 0, stdout: 'https://github.com/org/repo/pull/1\n', stderr: '' };
+				}
+				// gh pr view <number> --json state → merged
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('state')) {
+					return { exitCode: 0, stdout: '{"state":"MERGED"}', stderr: '' };
+				}
+				if (cmd === 'git') {
+					return { exitCode: 0, stdout: '', stderr: '' };
+				}
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}),
+			spawnWorker: vi.fn(
+				(_issue: string, _slug: string, _path: string, onEvent: (event: WorkerEvent) => void) => {
+					callOrder.push('spawnWorker');
+					process.nextTick(() => {
+						onEvent({
+							event: 'message',
+							data: { type: 'result', result: '[]', is_error: false },
+						});
+						onEvent({ event: 'exited', data: 0 });
+					});
+					return { id: 'test-1', issue: '10', groupSlug: 'feat-install', pid: 123 };
+				},
+			),
+		});
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		// pnpm install must happen after worktree creation, before worker spawn
+		const wtIdx = callOrder.indexOf('createWorktree');
+		const installIdx = callOrder.indexOf('pnpm-install');
+		const spawnIdx = callOrder.indexOf('spawnWorker');
+		expect(installIdx).toBeGreaterThan(wtIdx);
+		expect(installIdx).toBeLessThan(spawnIdx);
+
+		// Verify called with correct cwd
+		expect(deps.execCommand).toHaveBeenCalledWith('pnpm', ['install'], '/tmp/wt-install');
+	});
+
+	it('treats pnpm install failure as non-retryable worktree error', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/install-fail' });
+		const deps = createMockDeps({
+			execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+				if (cmd === 'pnpm' && args[0] === 'install') {
+					return { exitCode: 1, stdout: '', stderr: 'ERR_PNPM_LOCKFILE' };
+				}
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}),
+		});
+
+		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(result.results[0]?.completed).toBe(false);
+		expect(result.results[0]?.error).toContain('install error');
+		// Non-retryable — worker should not be spawned
+		expect(deps.spawnWorker).not.toHaveBeenCalled();
+		// Worktree cleaned up despite install failure
+		expect(deps.removeWorktree).toHaveBeenCalledWith('feat/install-fail');
+	});
+
+	it('status stays cloning during pnpm install', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/install-status' });
+		let statusDuringInstall: string | undefined;
+		const statuses = new Map<string, GroupStatus>();
+		const deps = createMockDeps({
+			readGroupStatus: vi.fn((slug: string) => statuses.get(slug) ?? null),
+			writeGroupStatus: vi.fn((slug: string, data: GroupStatus) => {
+				statuses.set(slug, data);
+			}),
+			execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+				if (cmd === 'pnpm' && args[0] === 'install' && statusDuringInstall === undefined) {
+					// Capture status during first install (issue worktree, not review)
+					statusDuringInstall = statuses.get('feat-install-status')?.step;
+					return { exitCode: 0, stdout: '', stderr: '' };
+				}
+				if (cmd === 'pnpm' && args[0] === 'install') {
+					return { exitCode: 0, stdout: '', stderr: '' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('number,url')) {
+					return { exitCode: 1, stdout: '', stderr: 'no PR found' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'create') {
+					return { exitCode: 0, stdout: 'https://github.com/org/repo/pull/1\n', stderr: '' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('state')) {
+					return { exitCode: 0, stdout: '{"state":"MERGED"}', stderr: '' };
+				}
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}),
+		});
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(statusDuringInstall).toBe('cloning');
+	});
+
+	it('runs pnpm install in review worktree before self-review', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/review-install' });
+		const installCwds: string[] = [];
+		let worktreeCallCount = 0;
+		const deps = createMockDeps({
+			createWorktree: vi.fn(() => {
+				worktreeCallCount++;
+				// First call: issue worktree, second call: review worktree
+				const wtPath = worktreeCallCount === 1 ? '/tmp/wt-issue' : '/tmp/wt-review';
+				return { branch: 'feat/review-install', worktreePath: wtPath };
+			}),
+			execCommand: vi.fn(async (cmd: string, args: readonly string[], cwd: string) => {
+				if (cmd === 'pnpm' && args[0] === 'install') {
+					installCwds.push(cwd);
+					return { exitCode: 0, stdout: '', stderr: '' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('number,url')) {
+					return { exitCode: 1, stdout: '', stderr: 'no PR found' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'create') {
+					return { exitCode: 0, stdout: 'https://github.com/org/repo/pull/1\n', stderr: '' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('state')) {
+					return { exitCode: 0, stdout: '{"state":"MERGED"}', stderr: '' };
+				}
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}),
+		});
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		// pnpm install called for both issue worktree and review worktree
+		expect(installCwds).toContain('/tmp/wt-issue');
+		expect(installCwds).toContain('/tmp/wt-review');
+	});
+
+	it('install failure captures stdout/stderr in status', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/install-log' });
+		const deps = createMockDeps({
+			execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+				if (cmd === 'pnpm' && args[0] === 'install') {
+					return { exitCode: 1, stdout: 'resolving...', stderr: 'ERR_PNPM_LOCKFILE' };
+				}
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}),
+		});
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		const writeStatusMock = vi.mocked(deps.writeGroupStatus);
+		const installErrorCalls = writeStatusMock.mock.calls.filter((call) =>
+			call[1].step_result.includes('install error'),
+		);
+		expect(installErrorCalls.length).toBeGreaterThanOrEqual(1);
+		expect(installErrorCalls[0]?.[1].step_result).toContain('ERR_PNPM_LOCKFILE');
+	});
+
+	it('handles pnpm install timeout', async () => {
+		vi.useFakeTimers();
+		try {
+			const group = makeGroup({ pr_number: 1, branch: 'feat/install-timeout' });
+			const deps = createMockDeps({
+				execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+					if (cmd === 'pnpm' && args[0] === 'install') {
+						// Never resolve — simulate hanging install
+						return new Promise<{ exitCode: number; stdout: string; stderr: string }>(() => {});
+					}
+					return { exitCode: 0, stdout: '', stderr: '' };
+				}),
+			});
+
+			const resultPromise = assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+			// Advance past the 120s default timeout
+			await vi.advanceTimersByTimeAsync(121_000);
+			const result = await resultPromise;
+
+			expect(result.results[0]?.completed).toBe(false);
+			expect(result.results[0]?.error).toContain('pnpm install timed out');
+			expect(deps.removeWorktree).toHaveBeenCalledWith('feat/install-timeout');
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('handles review worktree install failure', async () => {
+		let installCallCount = 0;
+		const group = makeGroup({ pr_number: 1, branch: 'feat/review-install-fail' });
+		const deps = createMockDeps({
+			execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+				if (cmd === 'pnpm' && args[0] === 'install') {
+					installCallCount++;
+					// First call (issue worktree) succeeds, second (review) fails
+					if (installCallCount >= 2) {
+						return { exitCode: 1, stdout: '', stderr: 'REVIEW_INSTALL_FAIL' };
+					}
+					return { exitCode: 0, stdout: '', stderr: '' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('number,url')) {
+					return { exitCode: 1, stdout: '', stderr: 'no PR found' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'create') {
+					return { exitCode: 0, stdout: 'https://github.com/org/repo/pull/1\n', stderr: '' };
+				}
+				if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view' && args.includes('state')) {
+					return { exitCode: 0, stdout: '{"state":"MERGED"}', stderr: '' };
+				}
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}),
+		});
+
+		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(result.results[0]?.completed).toBe(false);
+		expect(result.results[0]?.error).toContain('REVIEW_INSTALL_FAIL');
+		// Review worktree cleaned up
+		expect(deps.removeWorktree).toHaveBeenCalledWith('feat/review-install-fail');
+
+		// Status should show reviewing step with install error
+		const writeStatusMock = vi.mocked(deps.writeGroupStatus);
+		const reviewInstallError = writeStatusMock.mock.calls.find(
+			(call) => call[1].step === 'reviewing' && call[1].step_result.includes('install error'),
+		);
+		expect(reviewInstallError).toBeDefined();
+	});
+
+	it('handles execCommand throw in installDependencies', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/install-throw' });
+		const deps = createMockDeps({
+			execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+				if (cmd === 'pnpm' && args[0] === 'install') {
+					throw new Error('ENOENT: pnpm not found');
+				}
+				return { exitCode: 0, stdout: '', stderr: '' };
+			}),
+		});
+
+		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(result.results[0]?.completed).toBe(false);
+		expect(result.results[0]?.error).toContain('pnpm not found');
+		expect(deps.spawnWorker).not.toHaveBeenCalled();
+		expect(deps.removeWorktree).toHaveBeenCalledWith('feat/install-throw');
+	});
+
 	it('handles invalid branch name gracefully', async () => {
 		const group = makeGroup({ pr_number: 1, branch: '' });
 		const deps = createMockDeps();

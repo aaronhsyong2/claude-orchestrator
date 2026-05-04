@@ -6,6 +6,7 @@ import { selfReview } from './self-reviewer.js';
 import { deriveSlug } from './slug.js';
 import type {
 	AssignWorkResult,
+	ExecResult,
 	GroupStatus,
 	MergeDetectorDeps,
 	MergeDetectorResult,
@@ -19,6 +20,53 @@ import type {
 
 /** Default maximum wait for merge: 24 hours. */
 const DEFAULT_MERGE_WAIT_MS = 24 * 60 * 60 * 1000;
+
+/** Default timeout for dependency installation: 120 seconds. */
+const DEFAULT_INSTALL_TIMEOUT_MS = 120 * 1000;
+
+type InstallResult =
+	| { readonly success: true }
+	| { readonly success: false; readonly error: string };
+
+/**
+ * Run `pnpm install` in the given worktree directory.
+ *
+ * NOTE: On timeout, the underlying pnpm process is NOT cancelled (execCommand
+ * does not support AbortSignal). The process will continue running until it
+ * exits naturally. Worktree cleanup may race with the orphaned process.
+ */
+async function installDependencies(
+	worktreePath: string,
+	deps: SchedulerDeps,
+	timeoutMs: number = DEFAULT_INSTALL_TIMEOUT_MS,
+): Promise<InstallResult> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		// Attach no-op catch to prevent unhandled rejection if timeout wins
+		// and the exec promise later rejects after we've already returned.
+		const execPromise = deps.execCommand('pnpm', ['install'], worktreePath);
+		execPromise.catch(() => {});
+		const result = await Promise.race([
+			execPromise,
+			new Promise<ExecResult>((resolve) => {
+				timer = setTimeout(
+					() => resolve({ exitCode: 124, stdout: '', stderr: 'pnpm install timed out' }),
+					timeoutMs,
+				);
+			}),
+		]);
+		if (result.exitCode !== 0) {
+			const detail = result.stderr || result.stdout || `exit code ${result.exitCode}`;
+			return { success: false, error: `install error: ${detail}` };
+		}
+		return { success: true };
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		return { success: false, error: `install error: ${message}` };
+	} finally {
+		clearTimeout(timer);
+	}
+}
 
 export function getReadyGroups(plan: PlanData, mergedPRs: ReadonlySet<number>): readonly PRGroup[] {
 	return plan.groups.filter((group) => {
@@ -158,6 +206,19 @@ async function processIssue(
 	}
 
 	try {
+		// Install dependencies (status stays 'cloning')
+		const installResult = await installDependencies(worktreeInfo.worktreePath, deps);
+		if (!installResult.success) {
+			safeWriteStatus(deps, slug, {
+				...freshStatus(slug, group, deps, now),
+				current_issue: issueNumber,
+				step: 'cloning',
+				step_result: installResult.error,
+				last_updated: now(),
+			});
+			return { success: false, error: installResult.error };
+		}
+
 		// coding
 		safeWriteStatus(deps, slug, {
 			...freshStatus(slug, group, deps, now),
@@ -294,6 +355,18 @@ async function processGroup(
 	}
 
 	try {
+		// Install dependencies in review worktree
+		const installResult = await installDependencies(reviewWorktree.worktreePath, deps);
+		if (!installResult.success) {
+			safeWriteStatus(deps, slug, {
+				...freshStatus(slug, group, deps, now),
+				step: 'reviewing',
+				step_result: installResult.error,
+				last_updated: now(),
+			});
+			return { completed: false, error: installResult.error };
+		}
+
 		const reviewResult = await selfReview(
 			slug,
 			reviewWorktree.worktreePath,
