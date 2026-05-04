@@ -29,6 +29,18 @@ export function getLogPath(groupSlug: string, issue: string, baseDir?: string): 
 	return path.resolve(baseDir ?? '.', '.orchestrator/logs', groupSlug, `${issue}.log`);
 }
 
+const VERBOSE_ONLY_TYPES = new Set(['user', 'rate_limit_event', 'tool_use', 'tool_result']);
+
+/** Returns true if line is valid JSON with a known verbose-mode type (safe to ignore silently). */
+function isKnownNdjsonType(line: string): boolean {
+	try {
+		const obj = JSON.parse(line.trim());
+		return typeof obj?.type === 'string' && VERBOSE_ONLY_TYPES.has(obj.type);
+	} catch {
+		return false;
+	}
+}
+
 export function parseNdjsonLine(line: string): NdjsonMessage | null {
 	const trimmed = line.trim();
 	if (!trimmed) return null;
@@ -128,7 +140,7 @@ function spawnClaudeProcess(
 			const msg = parseNdjsonLine(line);
 			if (msg) {
 				onEvent({ event: 'message', data: msg });
-			} else if (line.trim()) {
+			} else if (line.trim() && !isKnownNdjsonType(line)) {
 				process.stderr.write(
 					`[worker-manager] unparseable NDJSON for ${groupSlug}/${id}: ${line.slice(0, 120)}\n`,
 				);
