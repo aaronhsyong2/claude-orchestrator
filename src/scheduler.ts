@@ -20,6 +20,37 @@ import type {
 /** Default maximum wait for merge: 24 hours. */
 const DEFAULT_MERGE_WAIT_MS = 24 * 60 * 60 * 1000;
 
+/** Default timeout for dependency installation: 120 seconds. */
+const DEFAULT_INSTALL_TIMEOUT_MS = 120 * 1000;
+
+async function installDependencies(
+	worktreePath: string,
+	deps: SchedulerDeps,
+	timeoutMs: number = DEFAULT_INSTALL_TIMEOUT_MS,
+): Promise<{ readonly success: boolean; readonly error?: string }> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const result = await Promise.race([
+			deps.execCommand('pnpm', ['install'], worktreePath),
+			new Promise<{ readonly exitCode: 124; readonly stdout: ''; readonly stderr: string }>(
+				(resolve) => {
+					timer = setTimeout(
+						() => resolve({ exitCode: 124, stdout: '', stderr: 'pnpm install timed out' }),
+						timeoutMs,
+					);
+				},
+			),
+		]);
+		if (result.exitCode !== 0) {
+			const detail = result.stderr || result.stdout;
+			return { success: false, error: `install error: ${detail}` };
+		}
+		return { success: true };
+	} finally {
+		if (timer !== undefined) clearTimeout(timer);
+	}
+}
+
 export function getReadyGroups(plan: PlanData, mergedPRs: ReadonlySet<number>): readonly PRGroup[] {
 	return plan.groups.filter((group) => {
 		if (group.status === 'done' || group.status === 'merged') return false;
@@ -158,6 +189,19 @@ async function processIssue(
 	}
 
 	try {
+		// Install dependencies (status stays 'cloning')
+		const installResult = await installDependencies(worktreeInfo.worktreePath, deps);
+		if (!installResult.success) {
+			safeWriteStatus(deps, slug, {
+				...freshStatus(slug, group, deps, now),
+				current_issue: issueNumber,
+				step: 'cloning',
+				step_result: installResult.error ?? 'install error',
+				last_updated: now(),
+			});
+			return { success: false, error: installResult.error };
+		}
+
 		// coding
 		safeWriteStatus(deps, slug, {
 			...freshStatus(slug, group, deps, now),
@@ -294,6 +338,18 @@ async function processGroup(
 	}
 
 	try {
+		// Install dependencies in review worktree
+		const reviewInstallResult = await installDependencies(reviewWorktree.worktreePath, deps);
+		if (!reviewInstallResult.success) {
+			safeWriteStatus(deps, slug, {
+				...freshStatus(slug, group, deps, now),
+				step: 'reviewing',
+				step_result: reviewInstallResult.error ?? 'install error',
+				last_updated: now(),
+			});
+			return { completed: false, error: `review ${reviewInstallResult.error}` };
+		}
+
 		const reviewResult = await selfReview(
 			slug,
 			reviewWorktree.worktreePath,
