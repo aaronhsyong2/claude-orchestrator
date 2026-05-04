@@ -42,8 +42,12 @@ async function installDependencies(
 ): Promise<InstallResult> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
+		// Attach no-op catch to prevent unhandled rejection if timeout wins
+		// and the exec promise later rejects after we've already returned.
+		const execPromise = deps.execCommand('pnpm', ['install'], worktreePath);
+		execPromise.catch(() => {});
 		const result = await Promise.race([
-			deps.execCommand('pnpm', ['install'], worktreePath),
+			execPromise,
 			new Promise<ExecResult>((resolve) => {
 				timer = setTimeout(
 					() => resolve({ exitCode: 124, stdout: '', stderr: 'pnpm install timed out' }),
@@ -52,7 +56,7 @@ async function installDependencies(
 			}),
 		]);
 		if (result.exitCode !== 0) {
-			const detail = result.stderr || result.stdout;
+			const detail = result.stderr || result.stdout || `exit code ${result.exitCode}`;
 			return { success: false, error: `install error: ${detail}` };
 		}
 		return { success: true };

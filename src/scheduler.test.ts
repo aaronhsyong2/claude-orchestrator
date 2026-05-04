@@ -724,26 +724,29 @@ describe('assignWork', () => {
 
 	it('handles pnpm install timeout', async () => {
 		vi.useFakeTimers();
-		const group = makeGroup({ pr_number: 1, branch: 'feat/install-timeout' });
-		const deps = createMockDeps({
-			execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
-				if (cmd === 'pnpm' && args[0] === 'install') {
-					// Never resolve — simulate hanging install
-					return new Promise<{ exitCode: number; stdout: string; stderr: string }>(() => {});
-				}
-				return { exitCode: 0, stdout: '', stderr: '' };
-			}),
-		});
+		try {
+			const group = makeGroup({ pr_number: 1, branch: 'feat/install-timeout' });
+			const deps = createMockDeps({
+				execCommand: vi.fn(async (cmd: string, args: readonly string[]) => {
+					if (cmd === 'pnpm' && args[0] === 'install') {
+						// Never resolve — simulate hanging install
+						return new Promise<{ exitCode: number; stdout: string; stderr: string }>(() => {});
+					}
+					return { exitCode: 0, stdout: '', stderr: '' };
+				}),
+			});
 
-		const resultPromise = assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
-		// Advance past the 120s default timeout
-		await vi.advanceTimersByTimeAsync(121_000);
-		const result = await resultPromise;
+			const resultPromise = assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+			// Advance past the 120s default timeout
+			await vi.advanceTimersByTimeAsync(121_000);
+			const result = await resultPromise;
 
-		expect(result.results[0]?.completed).toBe(false);
-		expect(result.results[0]?.error).toContain('pnpm install timed out');
-		expect(deps.removeWorktree).toHaveBeenCalledWith('feat/install-timeout');
-		vi.useRealTimers();
+			expect(result.results[0]?.completed).toBe(false);
+			expect(result.results[0]?.error).toContain('pnpm install timed out');
+			expect(deps.removeWorktree).toHaveBeenCalledWith('feat/install-timeout');
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('handles review worktree install failure', async () => {
