@@ -40,6 +40,7 @@ export interface OrchestrateOverrides {
 	readonly parsePlan?: (filePath: string) => Promise<PlanData>;
 	readonly deps?: SchedulerDeps;
 	readonly onShutdown?: (mode: ShutdownMode) => void;
+	readonly hasExistingState?: () => boolean;
 }
 
 async function buildGitState(
@@ -124,7 +125,8 @@ export async function orchestrate(
 
 	// Resume detection: reconcile state with git before scheduling
 	const mergedPRs = new Set<number>();
-	if (hasExistingState()) {
+	const checkExistingState = overrides?.hasExistingState ?? hasExistingState;
+	if (checkExistingState()) {
 		onProgress('Resuming from previous state -- reconciling with git...');
 		try {
 			const gitState = await buildGitState(rawDeps.execCommand ?? realExecCommand);

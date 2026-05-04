@@ -134,6 +134,7 @@ describe('orchestrate', () => {
 			loadConfig: () => TEST_CONFIG,
 			parsePlan: async () => plan,
 			deps,
+			hasExistingState: () => false,
 		});
 
 		expect(result.assigned).toBe(1);
@@ -164,6 +165,7 @@ describe('orchestrate', () => {
 			loadConfig: () => TEST_CONFIG,
 			parsePlan: async () => plan,
 			deps,
+			hasExistingState: () => false,
 		});
 
 		expect(result.assigned).toBe(1);
@@ -193,6 +195,7 @@ describe('orchestrate', () => {
 			loadConfig: () => TEST_CONFIG,
 			parsePlan: async () => plan,
 			deps,
+			hasExistingState: () => false,
 		});
 
 		expect(result.assigned).toBe(0);
@@ -214,6 +217,7 @@ describe('orchestrate', () => {
 			loadConfig: () => TEST_CONFIG,
 			parsePlan: async () => plan,
 			deps,
+			hasExistingState: () => false,
 		});
 
 		expect(progress).toContain('Starting PR 1: First [feat/first]');
@@ -252,6 +256,7 @@ describe('orchestrate', () => {
 			loadConfig: () => TEST_CONFIG,
 			parsePlan: async () => plan,
 			deps,
+			hasExistingState: () => false,
 		});
 
 		expect(result.results[0].completed).toBe(false);
@@ -272,6 +277,7 @@ describe('orchestrate', () => {
 			loadConfig: () => TEST_CONFIG,
 			parsePlan: async () => plan,
 			deps,
+			hasExistingState: () => false,
 		});
 
 		expect(result.results[0].completed).toBe(false);
@@ -293,6 +299,7 @@ describe('orchestrate', () => {
 			loadConfig: () => TEST_CONFIG,
 			parsePlan: async () => plan,
 			deps,
+			hasExistingState: () => false,
 		});
 
 		expect(result.results[0].completed).toBe(false);
@@ -309,6 +316,7 @@ describe('orchestrate', () => {
 			loadConfig: () => TEST_CONFIG,
 			parsePlan: async () => plan,
 			deps,
+			hasExistingState: () => false,
 		});
 
 		// writeGroupStatus called multiple times (cloning, coding, verifying, idle, reviewing phases)
@@ -330,6 +338,7 @@ describe('orchestrate', () => {
 			loadConfig: () => TEST_CONFIG,
 			parsePlan: async () => plan,
 			deps,
+			hasExistingState: () => false,
 		});
 
 		expect(deps.spawnWorker).toHaveBeenCalledWith(
