@@ -8,8 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NdjsonMessage, WorkerEvent } from './types.js';
 import {
 	buildPrompt,
+	formatReadableLine,
 	getLogDir,
 	getLogPath,
+	getReadableLogPath,
 	killWorker,
 	parseNdjsonLine,
 	spawnWorker,
@@ -85,6 +87,18 @@ describe('getLogPath', () => {
 	it('returns log file path for group and issue', () => {
 		const result = getLogPath('pr-1', '10', '/repo');
 		expect(result).toBe(path.resolve('/repo', '.orchestrator/logs/pr-1/10.log'));
+	});
+});
+
+describe('getReadableLogPath', () => {
+	it('returns .readable.log path for group and issue', () => {
+		const result = getReadableLogPath('pr-1', '10', '/repo');
+		expect(result).toBe(path.resolve('/repo', '.orchestrator/logs/pr-1/10.readable.log'));
+	});
+
+	it('defaults to cwd when no baseDir', () => {
+		const result = getReadableLogPath('pr-1', '10');
+		expect(result).toBe(path.resolve('.', '.orchestrator/logs/pr-1/10.readable.log'));
 	});
 });
 
@@ -168,6 +182,122 @@ describe('parseNdjsonLine', () => {
 			subtype: '',
 			session_id: '',
 		});
+	});
+});
+
+describe('formatReadableLine', () => {
+	it('extracts text from assistant message with string content', () => {
+		const line = '{"type":"assistant","message":"Working on implementation"}';
+		expect(formatReadableLine(line)).toBe('Working on implementation');
+	});
+
+	it('extracts text from assistant message with Claude protocol object', () => {
+		const line = JSON.stringify({
+			type: 'assistant',
+			message: {
+				id: 'msg_1',
+				content: [
+					{ type: 'text', text: 'Reading the file now' },
+					{ type: 'text', text: ' and checking types' },
+				],
+			},
+		});
+		expect(formatReadableLine(line)).toBe('Reading the file now and checking types');
+	});
+
+	it('formats tool_use with tool name and file path input', () => {
+		const line = JSON.stringify({
+			type: 'tool_use',
+			name: 'Read',
+			input: { file_path: 'src/types.ts' },
+		});
+		expect(formatReadableLine(line)).toBe('[tool] Read src/types.ts');
+	});
+
+	it('formats tool_use Edit with file path', () => {
+		const line = JSON.stringify({
+			type: 'tool_use',
+			name: 'Edit',
+			input: { file_path: 'src/foo.ts' },
+		});
+		expect(formatReadableLine(line)).toBe('[tool] Edit src/foo.ts');
+	});
+
+	it('formats tool_use Bash with command summary', () => {
+		const line = JSON.stringify({
+			type: 'tool_use',
+			name: 'Bash',
+			input: { command: 'git status' },
+		});
+		expect(formatReadableLine(line)).toBe('[tool] Bash: git status');
+	});
+
+	it('truncates long Bash commands', () => {
+		const longCmd = 'a'.repeat(200);
+		const line = JSON.stringify({
+			type: 'tool_use',
+			name: 'Bash',
+			input: { command: longCmd },
+		});
+		const result = formatReadableLine(line);
+		expect(result?.length).toBeLessThanOrEqual(120);
+		expect(result).toContain('…');
+	});
+
+	it('formats tool_use with just name when no recognizable input', () => {
+		const line = JSON.stringify({
+			type: 'tool_use',
+			name: 'WebSearch',
+			input: { query: 'something' },
+		});
+		expect(formatReadableLine(line)).toBe('[tool] WebSearch');
+	});
+
+	it('formats result message', () => {
+		const line = '{"type":"result","result":"Done","is_error":false}';
+		expect(formatReadableLine(line)).toBe('[result] Done');
+	});
+
+	it('formats error result message', () => {
+		const line = '{"type":"result","result":"Failed to complete","is_error":true}';
+		expect(formatReadableLine(line)).toBe('[result] ERROR: Failed to complete');
+	});
+
+	it('returns null for system messages', () => {
+		const line = '{"type":"system","subtype":"init","session_id":"abc"}';
+		expect(formatReadableLine(line)).toBeNull();
+	});
+
+	it('returns null for rate_limit_event', () => {
+		const line = '{"type":"rate_limit_event"}';
+		expect(formatReadableLine(line)).toBeNull();
+	});
+
+	it('returns null for invalid JSON', () => {
+		expect(formatReadableLine('not json')).toBeNull();
+	});
+
+	it('returns null for empty line', () => {
+		expect(formatReadableLine('')).toBeNull();
+		expect(formatReadableLine('  ')).toBeNull();
+	});
+
+	it('returns null for tool_result type', () => {
+		const line = '{"type":"tool_result","content":"some output"}';
+		expect(formatReadableLine(line)).toBeNull();
+	});
+
+	it('skips assistant messages with empty text', () => {
+		const line = '{"type":"assistant","message":""}';
+		expect(formatReadableLine(line)).toBeNull();
+	});
+
+	it('skips assistant protocol messages with no text content', () => {
+		const line = JSON.stringify({
+			type: 'assistant',
+			message: { id: 'msg_1', content: [{ type: 'tool_use', name: 'Read' }] },
+		});
+		expect(formatReadableLine(line)).toBeNull();
 	});
 });
 
@@ -396,6 +526,46 @@ describe('spawnWorker', () => {
 		spawnWorker('10', 'pr-1', tmpDir, () => {}, undefined, tmpDir);
 
 		expect(fs.existsSync(getLogDir('pr-1', tmpDir))).toBe(true);
+	});
+
+	it('writes readable log alongside raw log', async () => {
+		const proc = setupProc();
+
+		spawnWorker('10', 'pr-1', tmpDir, () => {}, undefined, tmpDir);
+
+		proc.stdout.write('{"type":"assistant","message":"Working on it"}\n');
+		proc.stdout.write('{"type":"tool_use","name":"Read","input":{"file_path":"src/types.ts"}}\n');
+		proc.stdout.write('{"type":"result","result":"Done","is_error":false}\n');
+		await new Promise((r) => setTimeout(r, 50));
+
+		proc.emit('close', 0);
+		await new Promise((r) => setTimeout(r, 50));
+
+		const readablePath = getReadableLogPath('pr-1', '10', tmpDir);
+		expect(fs.existsSync(readablePath)).toBe(true);
+		const content = fs.readFileSync(readablePath, 'utf-8');
+		expect(content).toContain('Working on it');
+		expect(content).toContain('[tool] Read src/types.ts');
+		expect(content).toContain('[result] Done');
+	});
+
+	it('does not write non-readable types to readable log', async () => {
+		const proc = setupProc();
+
+		spawnWorker('10', 'pr-1', tmpDir, () => {}, undefined, tmpDir);
+
+		proc.stdout.write('{"type":"system","subtype":"init","session_id":"s1"}\n');
+		proc.stdout.write('{"type":"rate_limit_event"}\n');
+		proc.stdout.write('{"type":"assistant","message":"hello"}\n');
+		await new Promise((r) => setTimeout(r, 50));
+
+		proc.emit('close', 0);
+		await new Promise((r) => setTimeout(r, 50));
+
+		const content = fs.readFileSync(getReadableLogPath('pr-1', '10', tmpDir), 'utf-8');
+		expect(content).not.toContain('system');
+		expect(content).not.toContain('rate_limit');
+		expect(content).toContain('hello');
 	});
 });
 

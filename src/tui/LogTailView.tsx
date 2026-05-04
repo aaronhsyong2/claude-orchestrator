@@ -96,15 +96,16 @@ interface LogReadResult {
 async function readLatestLogLines(logDir: string, maxLines: number): Promise<LogReadResult> {
 	try {
 		const entries = await fs.promises.readdir(logDir);
-		const files = entries
-			.filter((f) => f.endsWith('.log'))
-			.sort()
-			.reverse();
+		const allLogs = entries.filter((f) => f.endsWith('.log'));
 
-		if (files.length === 0) return { lines: [] };
+		if (allLogs.length === 0) return { lines: [] };
 
-		const latestLog = path.join(logDir, files[0] as string);
-		const content = await fs.promises.readFile(latestLog, 'utf-8');
+		// Prefer .readable.log files over raw .log files
+		const readableLogs = allLogs.filter((f) => f.endsWith('.readable.log'));
+		const targetFiles = readableLogs.length > 0 ? readableLogs : allLogs;
+		const latest = targetFiles.sort().reverse()[0] as string;
+
+		const content = await fs.promises.readFile(path.join(logDir, latest), 'utf-8');
 		return { lines: content.split('\n').filter(Boolean).slice(-maxLines) };
 	} catch (err: unknown) {
 		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { lines: [] };
