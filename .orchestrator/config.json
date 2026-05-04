@@ -32,7 +32,7 @@
 	],
 	"issue_source": {
 		"type": "github",
-		"repo": "org/repo-name"
+		"repo": "aaronhsyong2/claude-orchestrator"
 	},
 	"notifications": {
 		"system": true
