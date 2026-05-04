@@ -9,6 +9,7 @@
 - [Upstream Pipeline PR Plan](guide/upstream-pipeline-pr-plan.md) — 5 PR groups for epic pipeline extension
 - [First-Run Issues](guide/first-run-issues.md) — 16 issues from first orchestrator dogfooding session
 - [First-Run Fixes PRD](guide/first-run-fixes-prd.md) — 5 PRs to fix blockers, observability, worker prompts, and UX gaps
+- [First-Run Fixes PR Plan](guide/first-run-fixes-pr-plan.md) — 6 PR groups for first-run fixes orchestrated execution
 
 ## Decisions
 - [ADR 001: Core Design Decisions](decisions/001-design-decisions.md) — 26 locked design decisions from grill-me session
