@@ -170,6 +170,19 @@ Tests should verify external behavior — given inputs, assert outputs and side 
 
 This PRD extends the orchestrator — it does not replace any existing functionality. All 7 current stages (cloning → awaiting-merge) remain unchanged. The extension adds stages before `idle` and wraps the existing pipeline in an epic container.
 
+### Prerequisite: Long-running orchestrator mode
+
+This PRD implicitly requires a long-running orchestrator, but does not explicitly design the event loop. The current orchestrator is one-shot: `assignWork()` in `scheduler.ts` processes all ready groups via `Promise.allSettled()` and returns when all complete or escalate. This is incompatible with:
+
+- **Epic discovery polling** (`epic_poll_interval: 60s`) — requires a persistent process
+- **Approval gates** (`prd-review`, `plan-review`) — requires the orchestrator to wait for human input
+- **Implementation queue** — requires the orchestrator to detect when one epic finishes and start the next
+- **`needs-input` response** — the first-run fixes PRD (PR 5) uses `orchestrator respond` as a stopgap because the orchestrator exits after escalation
+
+A long-running event loop must be designed before this PRD can be implemented. This should be its own design/grill-me session. The event loop would unify: epic polling, approval gate waiting, `needs-input` human response, and implementation queue advancement into a single mechanism.
+
+**Blocker:** Do not start upstream pipeline implementation until long-running orchestrator mode is designed and implemented.
+
 ### Future Iteration
 
 After using this pipeline end-to-end, a follow-up grill-me session should capture friction points and inform a second iteration PRD — similar to how the session workflow journal informed this design.

@@ -7,6 +7,8 @@
 - [Session Workflow Journal](guide/session-workflow-journal.md) — Raw input tracking across PR lifecycle to inform orchestrator design
 - [Upstream Pipeline PRD](guide/upstream-pipeline-prd.md) — Extend orchestrator with epic discovery, approval gates, and pre-implementation pipeline
 - [Upstream Pipeline PR Plan](guide/upstream-pipeline-pr-plan.md) — 5 PR groups for epic pipeline extension
+- [First-Run Issues](guide/first-run-issues.md) — 16 issues from first orchestrator dogfooding session
+- [First-Run Fixes PRD](guide/first-run-fixes-prd.md) — 5 PRs to fix blockers, observability, worker prompts, and UX gaps
 
 ## Decisions
 - [ADR 001: Core Design Decisions](decisions/001-design-decisions.md) — 26 locked design decisions from grill-me session
