@@ -239,6 +239,7 @@ describe('orchestrate', () => {
 			loadConfig: () => config,
 			parsePlan: async () => plan,
 			deps,
+			hasExistingState: () => false,
 		});
 
 		expect(progress).toContain('Starting PR 1: A [feat/a]');

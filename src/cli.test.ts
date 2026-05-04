@@ -8,6 +8,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TSX_PATH = path.resolve(__dirname, '../node_modules/.bin/tsx');
 const CLI_PATH = path.resolve(__dirname, 'cli.tsx');
+
+if (!fs.existsSync(TSX_PATH)) {
+	throw new Error(`tsx binary not found at ${TSX_PATH} — run pnpm install`);
+}
+
 let tmpDir: string;
 
 beforeEach(() => {
