@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CLI_PATH = path.resolve(__dirname, '../dist/cli.js');
+const TSX_PATH = path.resolve(__dirname, '../node_modules/.bin/tsx');
+const CLI_PATH = path.resolve(__dirname, 'cli.tsx');
 let tmpDir: string;
 
 beforeEach(() => {
@@ -19,7 +20,7 @@ afterEach(() => {
 
 function run(...args: string[]): { stdout: string; stderr: string; exitCode: number } {
 	try {
-		const stdout = execFileSync('node', [CLI_PATH, ...args], {
+		const stdout = execFileSync(TSX_PATH, [CLI_PATH, ...args], {
 			cwd: tmpDir,
 			encoding: 'utf-8',
 			timeout: 5000,
