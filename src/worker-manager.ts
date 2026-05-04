@@ -96,7 +96,7 @@ function spawnClaudeProcess(
 		process.stderr.write(`[worker-manager] log write error for ${logPath}: ${err.message}\n`);
 	});
 
-	const proc = spawn('claude', ['-p', '--output-format', 'stream-json', prompt], {
+	const proc = spawn('claude', ['-p', '--verbose', '--output-format', 'stream-json', prompt], {
 		cwd: worktreePath,
 		stdio: ['ignore', 'pipe', 'pipe'],
 		env: { ...process.env, ECC_HOOK_PROFILE: 'minimal', ECC_GATEGUARD: 'off' },

@@ -247,7 +247,7 @@ describe('spawnWorker', () => {
 
 		expect(spawnMock).toHaveBeenCalledWith(
 			'claude',
-			['-p', '--output-format', 'stream-json', '/pick-up #10'],
+			['-p', '--verbose', '--output-format', 'stream-json', '/pick-up #10'],
 			expect.objectContaining({
 				cwd: tmpDir,
 				stdio: ['ignore', 'pipe', 'pipe'],
@@ -366,6 +366,7 @@ describe('spawnWorker', () => {
 			'claude',
 			[
 				'-p',
+				'--verbose',
 				'--output-format',
 				'stream-json',
 				'/pick-up #10\n\nContext from previous attempt:\nPrevious context here',
