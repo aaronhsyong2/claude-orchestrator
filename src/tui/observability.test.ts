@@ -254,4 +254,9 @@ describe('parseToolUseActivity', () => {
 	it('returns null for invalid JSON', () => {
 		expect(parseToolUseActivity('not json')).toBeNull();
 	});
+
+	it('returns null when tool name is missing', () => {
+		const line = '{"type":"tool_use","input":{"file_path":"src/foo.ts"}}';
+		expect(parseToolUseActivity(line)).toBeNull();
+	});
 });

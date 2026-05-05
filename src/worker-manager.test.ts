@@ -282,9 +282,14 @@ describe('formatReadableLine', () => {
 		expect(formatReadableLine('  ')).toBeNull();
 	});
 
-	it('returns null for tool_result type', () => {
+	it('returns null for non-error tool_result type', () => {
 		const line = '{"type":"tool_result","content":"some output"}';
 		expect(formatReadableLine(line)).toBeNull();
+	});
+
+	it('formats error tool_result with content', () => {
+		const line = '{"type":"tool_result","content":"Permission denied","is_error":true}';
+		expect(formatReadableLine(line)).toBe('[tool_result] ERROR: Permission denied');
 	});
 
 	it('skips assistant messages with empty text', () => {

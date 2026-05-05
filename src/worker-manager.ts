@@ -74,6 +74,12 @@ export function formatReadableLine(line: string): string | null {
 			return obj.is_error
 				? `[result] ERROR: ${String(obj.result ?? '')}`
 				: `[result] ${String(obj.result ?? '')}`;
+		case 'tool_result':
+			if (obj.is_error) {
+				const content = typeof obj.content === 'string' ? obj.content : String(obj.content ?? '');
+				return `[tool_result] ERROR: ${content}`;
+			}
+			return null;
 		default:
 			return null;
 	}

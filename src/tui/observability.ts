@@ -89,6 +89,7 @@ export function parseToolUseActivity(line: string): string | null {
 	if (obj.type !== 'tool_use') return null;
 
 	const name = String(obj.name ?? '');
+	if (!name) return null;
 	const input = obj.input as Record<string, unknown> | undefined;
 
 	if (input) {

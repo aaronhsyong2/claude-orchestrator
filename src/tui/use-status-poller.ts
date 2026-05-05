@@ -83,10 +83,18 @@ export function useStatusPoller(baseDir: string, intervalMs = 2000): StatusPolle
 						process.stderr.write(`[status-poller] skipping ${slug}: ${detail}\n`);
 					}
 
-					const groupActivity = readGroupActivity(slug, baseDir);
-					activityCache.set(slug, groupActivity);
-					if (groupActivity?.last_activity) {
-						lastActivityMap.set(slug, groupActivity.last_activity);
+					try {
+						const groupActivity = readGroupActivity(slug, baseDir);
+						activityCache.set(slug, groupActivity);
+						if (groupActivity?.last_activity) {
+							lastActivityMap.set(slug, groupActivity.last_activity);
+						}
+					} catch (slugErr: unknown) {
+						const detail = slugErr instanceof Error ? slugErr.message : String(slugErr);
+						process.stderr.write(
+							`[status-poller] failed to read activity for ${slug}: ${detail}\n`,
+						);
+						activityCache.set(slug, null);
 					}
 				}
 
