@@ -19,6 +19,20 @@ describe('session-manager', () => {
 			const result = getSessionId('group-1', '43', tmpDir);
 			expect(result).toBeNull();
 		});
+
+		it('returns null for corrupt JSON file', () => {
+			const filePath = path.join(tmpDir, '.orchestrator', 'sessions', 'g', '1.json');
+			fs.mkdirSync(path.dirname(filePath), { recursive: true });
+			fs.writeFileSync(filePath, 'not valid json{{{');
+			expect(getSessionId('g', '1', tmpDir)).toBeNull();
+		});
+
+		it('returns null when session_id is not a string', () => {
+			const filePath = path.join(tmpDir, '.orchestrator', 'sessions', 'g', '2.json');
+			fs.mkdirSync(path.dirname(filePath), { recursive: true });
+			fs.writeFileSync(filePath, JSON.stringify({ session_id: 42 }));
+			expect(getSessionId('g', '2', tmpDir)).toBeNull();
+		});
 	});
 
 	describe('roundtrip', () => {
@@ -30,6 +44,12 @@ describe('session-manager', () => {
 	});
 
 	describe('createSession', () => {
+		it('returns same sessionId on repeated calls (idempotent)', () => {
+			const first = createSession('pr-batch', '10', tmpDir);
+			const second = createSession('pr-batch', '10', tmpDir);
+			expect(second).toBe(first);
+		});
+
 		it('creates nested directories for deep group slugs', () => {
 			const sessionId = createSession('deeply/nested/group', '99', tmpDir);
 			expect(sessionId).toBeDefined();

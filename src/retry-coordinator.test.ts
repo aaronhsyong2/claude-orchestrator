@@ -148,6 +148,55 @@ describe('executeWithRetry', () => {
 		});
 	});
 
+	it('continues without session when createSession throws', async () => {
+		const spawnCalls: { session?: unknown }[] = [];
+		const deps = makeDeps({
+			createSession: () => {
+				throw new Error('disk full');
+			},
+			spawnWorker: (_issue, _slug, _path, onEvent, _ctx, session) => {
+				spawnCalls.push({ session });
+				Promise.resolve().then(() => onEvent({ event: 'exited', data: 0 }));
+				return { id: 'test-1', issue: '15', groupSlug: 'pr-6', pid: 1234 };
+			},
+			verify: makeVerify([{ success: true, steps: [] }]),
+		});
+
+		const result = await executeWithRetry(15, 'pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
+
+		expect(result.success).toBe(true);
+		// Session arg is undefined when resolution fails
+		expect(spawnCalls[0].session).toBeUndefined();
+	});
+
+	it('continues without session on retry when getSessionId throws', async () => {
+		const spawnCalls: { session?: unknown }[] = [];
+		const deps = makeDeps({
+			getSessionId: () => {
+				throw new Error('permission denied');
+			},
+			spawnWorker: (_issue, _slug, _path, onEvent, _ctx, session) => {
+				spawnCalls.push({ session });
+				Promise.resolve().then(() => onEvent({ event: 'exited', data: 0 }));
+				return { id: 'test-1', issue: '15', groupSlug: 'pr-6', pid: 1234 };
+			},
+			verify: makeVerify([
+				{ success: false, failedStep: 'lint', error: 'unused var', steps: [] },
+				{ success: true, steps: [] },
+			]),
+		});
+
+		const result = await executeWithRetry(15, 'pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
+
+		expect(result.success).toBe(true);
+		// First spawn has session (createSession works)
+		expect(spawnCalls[0].session).toEqual(
+			expect.objectContaining({ sessionId: expect.any(String), resume: false }),
+		);
+		// Retry: getSessionId throws, session is undefined
+		expect(spawnCalls[1].session).toBeUndefined();
+	});
+
 	it('retries on verification failure and succeeds on second attempt', async () => {
 		const deps = makeDeps({
 			spawnWorker: makeSpawnWorker([0, 0]),

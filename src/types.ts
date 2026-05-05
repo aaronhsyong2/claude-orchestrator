@@ -219,7 +219,7 @@ export interface ReviewResult {
 }
 
 export interface SessionOptions {
-	readonly sessionId?: string;
+	readonly sessionId: string;
 	readonly resume?: boolean;
 }
 
