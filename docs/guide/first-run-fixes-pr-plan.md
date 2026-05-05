@@ -33,7 +33,7 @@ Logical grouping of issues from the first-run orchestrator fixes (#38) into PRs.
 
 **Branch:** `feat/issue-41-42`
 **PR:** [#51](https://github.com/aaronhsyong2/claude-orchestrator/pull/51)
-**Status:** open (review complete, ready to merge)
+**Status:** merged
 
 | Issue | Title | Status |
 |-------|-------|--------|
@@ -45,12 +45,14 @@ Logical grouping of issues from the first-run orchestrator fixes (#38) into PRs.
 ## PR 3: Session Manager + Session Resume
 
 **Branch:** `feat/issue-43-44`
-**Status:** pending
+**PR:** [#52](https://github.com/aaronhsyong2/claude-orchestrator/pull/52)
+**Status:** merged
+**Review:** 6 rounds, all critical/high issues resolved
 
 | Issue | Title | Status |
 |-------|-------|--------|
-| #43 | Session manager deep module for worker session persistence | Open |
-| #44 | Session resume in worker spawns via --session-id + --resume | Open |
+| #43 | Session manager deep module for worker session persistence | Closed |
+| #44 | Session resume in worker spawns via --session-id + --resume | Closed |
 
 ## PR 4: Configurable Routing + Pre-fetch + Constraints
 
