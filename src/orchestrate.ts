@@ -73,8 +73,10 @@ function handleToolActivity(event: WorkerEvent, groupSlug: string): void {
 	if (event.event === 'tool_activity') {
 		try {
 			appendToolActivity(groupSlug, event.data, new Date().toISOString());
-		} catch {
-			// Non-critical — don't crash worker pipeline for activity tracking
+		} catch (err: unknown) {
+			process.stderr.write(
+				`[orchestrate] activity tracking failed for ${groupSlug}: ${err instanceof Error ? err.message : String(err)}\n`,
+			);
 		}
 	}
 }

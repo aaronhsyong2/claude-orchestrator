@@ -123,12 +123,21 @@ export function readGroupActivity(groupSlug: string, baseDir?: string): GroupAct
 		) {
 			return parsed as GroupActivity;
 		}
+		process.stderr.write(
+			`[status-manager] skipping malformed activity file ${groupSlug}.activity.json\n`,
+		);
 		return null;
-	} catch {
+	} catch (err: unknown) {
+		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+		const detail = err instanceof Error ? err.message : String(err);
+		process.stderr.write(`[status-manager] failed to read activity for ${groupSlug}: ${detail}\n`);
 		return null;
 	}
 }
 
+// Note: appendToolActivity uses a read-then-write pattern that is not atomic.
+// Concurrent workers on the same slug may lose writes (TOCTOU race).
+// This is acceptable because activity data is cosmetic (TUI display only).
 export function appendToolActivity(
 	groupSlug: string,
 	message: string,

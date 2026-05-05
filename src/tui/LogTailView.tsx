@@ -103,7 +103,12 @@ async function readLatestLogLines(logDir: string, maxLines: number): Promise<Log
 		// Prefer .readable.log files over raw .log files
 		const readableLogs = allLogs.filter((f) => f.endsWith('.readable.log'));
 		const targetFiles = readableLogs.length > 0 ? readableLogs : allLogs;
-		const latest = targetFiles.sort().reverse()[0] as string;
+		const latest = targetFiles.sort((a, b) => {
+			const numA = parseInt(a, 10);
+			const numB = parseInt(b, 10);
+			if (!Number.isNaN(numA) && !Number.isNaN(numB)) return numB - numA;
+			return b.localeCompare(a);
+		})[0] as string;
 
 		const content = await fs.promises.readFile(path.join(logDir, latest), 'utf-8');
 		return { lines: content.split('\n').filter(Boolean).slice(-maxLines) };

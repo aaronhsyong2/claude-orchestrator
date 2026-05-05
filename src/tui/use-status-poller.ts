@@ -83,14 +83,10 @@ export function useStatusPoller(baseDir: string, intervalMs = 2000): StatusPolle
 						process.stderr.write(`[status-poller] skipping ${slug}: ${detail}\n`);
 					}
 
-					try {
-						const groupActivity = readGroupActivity(slug, baseDir);
-						activityCache.set(slug, groupActivity);
-						if (groupActivity?.last_activity) {
-							lastActivityMap.set(slug, groupActivity.last_activity);
-						}
-					} catch {
-						activityCache.set(slug, null);
+					const groupActivity = readGroupActivity(slug, baseDir);
+					activityCache.set(slug, groupActivity);
+					if (groupActivity?.last_activity) {
+						lastActivityMap.set(slug, groupActivity.last_activity);
 					}
 				}
 
