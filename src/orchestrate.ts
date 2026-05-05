@@ -27,6 +27,7 @@ import type {
 	WorkerEvent,
 } from './types.js';
 import { verify as realVerify } from './verification.js';
+import { createSession as realCreateSession, getSessionId as realGetSessionId } from './session-manager.js';
 import {
 	killWorker as realKillWorker,
 	spawnDirectWorker as realSpawnDirectWorker,
@@ -85,7 +86,7 @@ function wrapSpawnWorker(
 	original: SchedulerDeps['spawnWorker'],
 	registry: WorkerRegistry,
 ): SchedulerDeps['spawnWorker'] {
-	return (issue, groupSlug, worktreePath, onEvent, contextContent?) => {
+	return (issue, groupSlug, worktreePath, onEvent, contextContent?, session?) => {
 		let pid = -1;
 		const wrappedOnEvent = (event: WorkerEvent): void => {
 			if (event.event === 'exited') {
@@ -94,7 +95,7 @@ function wrapSpawnWorker(
 			handleToolActivity(event, groupSlug);
 			onEvent(event);
 		};
-		const handle = original(issue, groupSlug, worktreePath, wrappedOnEvent, contextContent);
+		const handle = original(issue, groupSlug, worktreePath, wrappedOnEvent, contextContent, session);
 		pid = handle.pid;
 		registry.register(pid);
 		return handle;
@@ -215,7 +216,8 @@ function buildRealDeps(): SchedulerDeps {
 	return {
 		createWorktree: realCreate,
 		removeWorktree: realRemove,
-		spawnWorker: realSpawnWorker,
+		spawnWorker: (issue, groupSlug, worktreePath, onEvent, contextContent?, session?) =>
+			realSpawnWorker(issue, groupSlug, worktreePath, onEvent, contextContent, undefined, session),
 		spawnDirectWorker: realSpawnDirectWorker,
 		killWorker: realKillWorker,
 		verify: realVerify,
@@ -226,6 +228,8 @@ function buildRealDeps(): SchedulerDeps {
 		deleteContext: realDeleteContext,
 		execCommand: realExecCommand,
 		notify: realNotify,
+		createSession: realCreateSession,
+		getSessionId: realGetSessionId,
 	};
 }
 

@@ -120,6 +120,8 @@ function buildMockDeps(
 			return { exitCode: 0, stdout: '', stderr: '' };
 		}),
 		notify: vi.fn().mockResolvedValue(undefined),
+		createSession: vi.fn((_slug: string, issue: string) => `session-${issue}`),
+		getSessionId: vi.fn((_slug: string, issue: string) => `session-${issue}`),
 	};
 }
 
@@ -348,6 +350,7 @@ describe('orchestrate', () => {
 			expect.stringContaining('mock-worktree'),
 			expect.any(Function),
 			undefined,
+			expect.objectContaining({ sessionId: expect.any(String), resume: false }),
 		);
 	});
 });

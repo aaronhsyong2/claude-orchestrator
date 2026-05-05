@@ -69,6 +69,19 @@ describe('buildPrompt', () => {
 	it('handles empty context as no context', () => {
 		expect(buildPrompt('5', '')).toBe('/pick-up #5');
 	});
+
+	it('builds resume prompt with /pick-up and session-resumed context', () => {
+		const result = buildPrompt('10', 'worker exited with code 1', { resume: true });
+		expect(result).toBe(
+			'/pick-up #10\n\nContext from previous attempt (session resumed):\nworker exited with code 1',
+		);
+		expect(result).toContain('/pick-up');
+	});
+
+	it('builds normal prompt when resume set but no context', () => {
+		const result = buildPrompt('10', undefined, { resume: true });
+		expect(result).toBe('/pick-up #10');
+	});
 });
 
 describe('getLogDir', () => {
@@ -508,6 +521,46 @@ describe('spawnWorker', () => {
 			],
 			expect.anything(),
 		);
+	});
+
+	it('includes --session-id flag on first spawn when sessionId provided', () => {
+		setupProc();
+
+		spawnWorker('10', 'pr-1', tmpDir, () => {}, undefined, tmpDir, { sessionId: 'test-uuid-123' });
+
+		expect(spawnMock).toHaveBeenCalledWith(
+			'claude',
+			expect.arrayContaining(['--session-id', 'test-uuid-123']),
+			expect.anything(),
+		);
+	});
+
+	it('exposes sessionId on WorkerHandle when provided', () => {
+		setupProc();
+
+		const handle = spawnWorker('10', 'pr-1', tmpDir, () => {}, undefined, tmpDir, {
+			sessionId: 'test-uuid-456',
+		});
+
+		expect(handle.sessionId).toBe('test-uuid-456');
+	});
+
+	it('includes --resume flag on retry when sessionId and resume provided', () => {
+		setupProc();
+
+		spawnWorker('10', 'pr-1', tmpDir, () => {}, 'error context', tmpDir, {
+			sessionId: 'test-uuid-123',
+			resume: true,
+		});
+
+		expect(spawnMock).toHaveBeenCalledWith(
+			'claude',
+			expect.arrayContaining(['--resume', 'test-uuid-123']),
+			expect.anything(),
+		);
+		// Should NOT include --session-id
+		const args = spawnMock.mock.calls[0][1] as string[];
+		expect(args).not.toContain('--session-id');
 	});
 
 	it('emits tool_activity events for tool_use NDJSON lines', async () => {

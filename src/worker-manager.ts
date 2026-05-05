@@ -8,6 +8,7 @@ import type {
 	NdjsonMessage,
 	NdjsonResultMessage,
 	NdjsonSystemMessage,
+	SessionOptions,
 	WorkerEvent,
 	WorkerHandle,
 } from './types.js';
@@ -16,9 +17,16 @@ import { assertValidIssue, assertValidSlug } from './validation.js';
 const KILL_TIMEOUT_MS = 5000;
 const KILL_POLL_INTERVAL_MS = 100;
 
-export function buildPrompt(issueNumber: string, contextContent?: string): string {
+export function buildPrompt(
+	issueNumber: string,
+	contextContent?: string,
+	options?: { resume?: boolean },
+): string {
 	const base = `/pick-up #${issueNumber}`;
 	if (!contextContent) return base;
+	if (options?.resume) {
+		return `${base}\n\nContext from previous attempt (session resumed):\n${contextContent}`;
+	}
 	return `${base}\n\nContext from previous attempt:\n${contextContent}`;
 }
 
@@ -184,6 +192,7 @@ function spawnClaudeProcess(
 	prompt: string,
 	onEvent: WorkerEventCallback,
 	baseDir?: string,
+	session?: SessionOptions,
 ): WorkerHandle {
 	const logPath = getLogPath(groupSlug, id, baseDir);
 	const readableLogPath = getReadableLogPath(groupSlug, id, baseDir);
@@ -199,11 +208,24 @@ function spawnClaudeProcess(
 		);
 	});
 
-	const proc = spawn('claude', ['-p', '--verbose', '--output-format', 'stream-json', prompt], {
-		cwd: worktreePath,
-		stdio: ['ignore', 'pipe', 'pipe'],
-		env: { ...process.env, ECC_HOOK_PROFILE: 'minimal', ECC_GATEGUARD: 'off' },
-	});
+	const sessionArgs: string[] = [];
+	if (session?.sessionId) {
+		if (session.resume) {
+			sessionArgs.push('--resume', session.sessionId);
+		} else {
+			sessionArgs.push('--session-id', session.sessionId);
+		}
+	}
+
+	const proc = spawn(
+		'claude',
+		[...sessionArgs, '-p', '--verbose', '--output-format', 'stream-json', prompt],
+		{
+			cwd: worktreePath,
+			stdio: ['ignore', 'pipe', 'pipe'],
+			env: { ...process.env, ECC_HOOK_PROFILE: 'minimal', ECC_GATEGUARD: 'off' },
+		},
+	);
 
 	if (!proc.pid) {
 		throw new Error('Failed to spawn claude — process has no PID');
@@ -214,6 +236,7 @@ function spawnClaudeProcess(
 		issue: id,
 		groupSlug,
 		pid: proc.pid,
+		...(session?.sessionId ? { sessionId: session.sessionId } : {}),
 	};
 
 	let logClosed = false;
@@ -291,13 +314,14 @@ export function spawnWorker(
 	onEvent: WorkerEventCallback,
 	contextContent?: string,
 	baseDir?: string,
+	session?: SessionOptions,
 ): WorkerHandle {
 	assertValidSlug(groupSlug);
 	assertValidIssue(issue);
 	assertValidWorktreePath(worktreePath);
 
-	const prompt = buildPrompt(issue, contextContent);
-	return spawnClaudeProcess(issue, groupSlug, worktreePath, prompt, onEvent, baseDir);
+	const prompt = buildPrompt(issue, contextContent, { resume: session?.resume });
+	return spawnClaudeProcess(issue, groupSlug, worktreePath, prompt, onEvent, baseDir, session);
 }
 
 /**
