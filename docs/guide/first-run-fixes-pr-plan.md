@@ -32,14 +32,15 @@ Logical grouping of issues from the first-run orchestrator fixes (#38) into PRs.
 ## PR 2: Observability — Readable Logs + Stuck Detection
 
 **Branch:** `feat/issue-41-42`
-**Status:** pending
+**PR:** [#51](https://github.com/aaronhsyong2/claude-orchestrator/pull/51)
+**Status:** open (review complete, ready to merge)
 
 | Issue | Title | Status |
 |-------|-------|--------|
-| #41 | Human-readable worker logs from NDJSON stream | Open |
-| #42 | Stuck detection + elapsed time + live activity in TUI | Open |
+| #41 | Human-readable worker logs from NDJSON stream | Closed |
+| #42 | Stuck detection + elapsed time + live activity in TUI | Closed |
 
-> Depends on: PR 1
+> Depends on: PR 1 (merged)
 
 ## PR 3: Session Manager + Session Resume
 
