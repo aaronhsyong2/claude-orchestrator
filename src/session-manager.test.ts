@@ -53,7 +53,6 @@ describe('session-manager', () => {
 			const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 			expect(data.session_id).toBe(sessionId);
 			expect(data.created).toBeDefined();
-			expect(data.last_resumed).toBeDefined();
 		});
 	});
 });

@@ -25,7 +25,7 @@ export function buildPrompt(
 	const base = `/pick-up #${issueNumber}`;
 	if (!contextContent) return base;
 	if (options?.resume) {
-		return `Context from previous attempt:\n${contextContent}`;
+		return `${base}\n\nContext from previous attempt (session resumed):\n${contextContent}`;
 	}
 	return `${base}\n\nContext from previous attempt:\n${contextContent}`;
 }
@@ -320,7 +320,7 @@ export function spawnWorker(
 	assertValidIssue(issue);
 	assertValidWorktreePath(worktreePath);
 
-	const prompt = buildPrompt(issue, contextContent);
+	const prompt = buildPrompt(issue, contextContent, { resume: session?.resume });
 	return spawnClaudeProcess(issue, groupSlug, worktreePath, prompt, onEvent, baseDir, session);
 }
 

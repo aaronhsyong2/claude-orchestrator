@@ -9,11 +9,19 @@ function sessionPath(groupSlug: string, issue: string, baseDir?: string): string
 export function getSessionId(groupSlug: string, issue: string, baseDir?: string): string | null {
 	const filePath = sessionPath(groupSlug, issue, baseDir);
 	if (!fs.existsSync(filePath)) return null;
-	const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-	return data.session_id;
+	try {
+		const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+		return typeof data.session_id === 'string' ? data.session_id : null;
+	} catch {
+		return null;
+	}
 }
 
 export function createSession(groupSlug: string, issue: string, baseDir?: string): string {
+	// Idempotent: return existing session if already created for this issue
+	const existing = getSessionId(groupSlug, issue, baseDir);
+	if (existing) return existing;
+
 	const filePath = sessionPath(groupSlug, issue, baseDir);
 	const sessionId = crypto.randomUUID();
 	const now = new Date().toISOString();
@@ -25,7 +33,6 @@ export function createSession(groupSlug: string, issue: string, baseDir?: string
 			{
 				session_id: sessionId,
 				created: now,
-				last_resumed: now,
 			},
 			null,
 			2,

@@ -350,6 +350,7 @@ describe('orchestrate', () => {
 			expect.stringContaining('mock-worktree'),
 			expect.any(Function),
 			undefined,
+			expect.objectContaining({ sessionId: expect.any(String), resume: false }),
 		);
 	});
 });

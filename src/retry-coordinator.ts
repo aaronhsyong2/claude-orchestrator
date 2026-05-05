@@ -65,9 +65,16 @@ export async function executeWithRetry(
 
 		// Resolve session: create on first attempt, retrieve on retries
 		const isRetry = attempt > 1;
-		const sessionId = isRetry
-			? deps.getSessionId(groupSlug, String(issue))
-			: deps.createSession(groupSlug, String(issue));
+		let sessionId: string | null = null;
+		try {
+			sessionId = isRetry
+				? deps.getSessionId(groupSlug, String(issue))
+				: deps.createSession(groupSlug, String(issue));
+		} catch (err) {
+			process.stderr.write(
+				`[retry] session resolution failed for ${groupSlug}/#${issue}: ${err instanceof Error ? err.message : String(err)}\n`,
+			);
+		}
 
 		// Spawn worker and wait for exit
 		let exitCode: number;

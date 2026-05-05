@@ -70,10 +70,12 @@ describe('buildPrompt', () => {
 		expect(buildPrompt('5', '')).toBe('/pick-up #5');
 	});
 
-	it('builds retry-only prompt when resume flag set', () => {
+	it('builds resume prompt with /pick-up and session-resumed context', () => {
 		const result = buildPrompt('10', 'worker exited with code 1', { resume: true });
-		expect(result).toBe('Context from previous attempt:\nworker exited with code 1');
-		expect(result).not.toContain('/pick-up');
+		expect(result).toBe(
+			'/pick-up #10\n\nContext from previous attempt (session resumed):\nworker exited with code 1',
+		);
+		expect(result).toContain('/pick-up');
 	});
 
 	it('builds normal prompt when resume set but no context', () => {
