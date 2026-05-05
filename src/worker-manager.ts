@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
+import { parseToolUseActivity } from './tui/observability.js';
 import type {
 	NdjsonAssistantMessage,
 	NdjsonMessage,
@@ -29,6 +30,10 @@ export function getLogPath(groupSlug: string, issue: string, baseDir?: string): 
 	return path.resolve(baseDir ?? '.', '.orchestrator/logs', groupSlug, `${issue}.log`);
 }
 
+export function getReadableLogPath(groupSlug: string, issue: string, baseDir?: string): string {
+	return path.resolve(baseDir ?? '.', '.orchestrator/logs', groupSlug, `${issue}.readable.log`);
+}
+
 const VERBOSE_ONLY_TYPES = new Set(['user', 'rate_limit_event', 'tool_use', 'tool_result']);
 
 /** Returns true if line is valid JSON with a known verbose-mode type (safe to ignore silently). */
@@ -39,6 +44,85 @@ function isKnownNdjsonType(line: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+const READABLE_LINE_MAX = 120;
+
+/**
+ * Convert a raw NDJSON line into a human-readable log string.
+ * Returns null for types that should not appear in the readable log.
+ */
+export function formatReadableLine(line: string): string | null {
+	const trimmed = line.trim();
+	if (!trimmed) return null;
+
+	let obj: Record<string, unknown>;
+	try {
+		obj = JSON.parse(trimmed) as Record<string, unknown>;
+	} catch {
+		return null;
+	}
+
+	if (typeof obj !== 'object' || obj === null || typeof obj.type !== 'string') return null;
+
+	switch (obj.type) {
+		case 'assistant':
+			return formatAssistant(obj.message);
+		case 'tool_use':
+			return formatToolUse(obj.name as string, obj.input as Record<string, unknown> | undefined);
+		case 'result':
+			return obj.is_error
+				? `[result] ERROR: ${String(obj.result ?? '')}`
+				: `[result] ${String(obj.result ?? '')}`;
+		case 'tool_result':
+			if (obj.is_error) {
+				const content = typeof obj.content === 'string' ? obj.content : String(obj.content ?? '');
+				return `[tool_result] ERROR: ${content}`;
+			}
+			return null;
+		default:
+			return null;
+	}
+}
+
+function formatAssistant(message: unknown): string | null {
+	if (typeof message === 'string') {
+		return message || null;
+	}
+	if (typeof message === 'object' && message !== null) {
+		const msg = message as { content?: unknown[] };
+		if (Array.isArray(msg.content)) {
+			const texts = msg.content
+				.filter(
+					(block): block is { type: 'text'; text: string } =>
+						typeof block === 'object' &&
+						block !== null &&
+						(block as Record<string, unknown>).type === 'text' &&
+						typeof (block as Record<string, unknown>).text === 'string',
+				)
+				.map((block) => block.text);
+			const joined = texts.join('');
+			return joined || null;
+		}
+	}
+	return null;
+}
+
+function formatToolUse(name: string, input?: Record<string, unknown>): string {
+	if (input) {
+		if (typeof input.file_path === 'string') {
+			return `[tool] ${name} ${input.file_path}`;
+		}
+		if (typeof input.command === 'string') {
+			const cmd = input.command as string;
+			const summary = `[tool] ${name}: ${cmd}`;
+			if (summary.length > READABLE_LINE_MAX) {
+				return `${summary.slice(0, READABLE_LINE_MAX - 1)}…`;
+			}
+			return summary;
+		}
+	}
+	return `[tool] ${name}`;
 }
 
 export function parseNdjsonLine(line: string): NdjsonMessage | null {
@@ -102,10 +186,17 @@ function spawnClaudeProcess(
 	baseDir?: string,
 ): WorkerHandle {
 	const logPath = getLogPath(groupSlug, id, baseDir);
+	const readableLogPath = getReadableLogPath(groupSlug, id, baseDir);
 	fs.mkdirSync(path.dirname(logPath), { recursive: true });
 	const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 	logStream.on('error', (err) => {
 		process.stderr.write(`[worker-manager] log write error for ${logPath}: ${err.message}\n`);
+	});
+	const readableLogStream = fs.createWriteStream(readableLogPath, { flags: 'a' });
+	readableLogStream.on('error', (err) => {
+		process.stderr.write(
+			`[worker-manager] readable log write error for ${readableLogPath}: ${err.message}\n`,
+		);
 	});
 
 	const proc = spawn('claude', ['-p', '--verbose', '--output-format', 'stream-json', prompt], {
@@ -130,6 +221,7 @@ function spawnClaudeProcess(
 		if (!logClosed) {
 			logClosed = true;
 			logStream.end();
+			readableLogStream.end();
 		}
 	};
 
@@ -137,6 +229,17 @@ function spawnClaudeProcess(
 		const rl = readline.createInterface({ input: proc.stdout });
 		rl.on('line', (line) => {
 			logStream.write(`${line}\n`);
+
+			const readable = formatReadableLine(line);
+			if (readable) {
+				readableLogStream.write(`${readable}\n`);
+			}
+
+			const activity = parseToolUseActivity(line);
+			if (activity) {
+				onEvent({ event: 'tool_activity', data: activity });
+			}
+
 			const msg = parseNdjsonLine(line);
 			if (msg) {
 				onEvent({ event: 'message', data: msg });

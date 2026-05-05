@@ -130,6 +130,33 @@ describe('PRGroupsPanel', () => {
 		);
 		expect(lastFrame()).toContain('\u2699');
 	});
+
+	it('shows elapsed time from stepLabels prop', () => {
+		const groups = [makeGroup({ pr_group: 'pr-5', step: 'verifying' })];
+		const stepLabels = new Map([['pr-5', 'verifying (2m 34s)']]);
+		const { lastFrame } = render(
+			React.createElement(PRGroupsPanel, { groups, active: true, selectedIndex: 0, stepLabels }),
+		);
+		expect(lastFrame()).toContain('verifying (2m 34s)');
+	});
+
+	it('shows stale warning from stepLabels prop', () => {
+		const groups = [makeGroup({ pr_group: 'pr-5', step: 'coding' })];
+		const stepLabels = new Map([['pr-5', 'coding (3m 0s) \u26A0 no activity']]);
+		const { lastFrame } = render(
+			React.createElement(PRGroupsPanel, { groups, active: true, selectedIndex: 0, stepLabels }),
+		);
+		expect(lastFrame()).toContain('\u26A0 no activity');
+	});
+
+	it('falls back to step name when no stepLabels provided', () => {
+		const groups = [makeGroup({ pr_group: 'pr-5', step: 'coding' })];
+		const { lastFrame } = render(
+			React.createElement(PRGroupsPanel, { groups, active: true, selectedIndex: 0 }),
+		);
+		// Should still render without error — just no elapsed
+		expect(lastFrame()).toContain('pr-5');
+	});
 });
 
 describe('IssuesPanel', () => {
@@ -326,6 +353,55 @@ describe('LogTailView', () => {
 			expect(frame).toContain('line one');
 			expect(frame).toContain('line two');
 			expect(frame).toContain('line three');
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it('prefers .readable.log over raw .log files', async () => {
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logtail-readable-'));
+		const groupSlug = 'pr-readable';
+		const logDir = path.join(tmpDir, '.orchestrator', 'logs', groupSlug);
+		fs.mkdirSync(logDir, { recursive: true });
+		fs.writeFileSync(path.join(logDir, '10.log'), '{"type":"assistant","message":"raw ndjson"}\n');
+		fs.writeFileSync(
+			path.join(logDir, '10.readable.log'),
+			'Working on implementation\n[tool] Read src/types.ts\n[result] Done\n',
+		);
+
+		try {
+			const { lastFrame } = render(
+				React.createElement(LogTailView, { groupSlug, baseDir: tmpDir }),
+			);
+			await act(async () => {
+				await new Promise((r) => setTimeout(r, 50));
+			});
+			const frame = lastFrame();
+			expect(frame).toContain('Working on implementation');
+			expect(frame).toContain('[tool] Read src/types.ts');
+			expect(frame).not.toContain('raw ndjson');
+		} finally {
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it('falls back to .log when no .readable.log exists', async () => {
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logtail-fallback-'));
+		const groupSlug = 'pr-fallback';
+		const logDir = path.join(tmpDir, '.orchestrator', 'logs', groupSlug);
+		fs.mkdirSync(logDir, { recursive: true });
+		fs.writeFileSync(path.join(logDir, '10.log'), 'raw line one\nraw line two\n');
+
+		try {
+			const { lastFrame } = render(
+				React.createElement(LogTailView, { groupSlug, baseDir: tmpDir }),
+			);
+			await act(async () => {
+				await new Promise((r) => setTimeout(r, 50));
+			});
+			const frame = lastFrame();
+			expect(frame).toContain('raw line one');
+			expect(frame).toContain('raw line two');
 		} finally {
 			fs.rmSync(tmpDir, { recursive: true, force: true });
 		}

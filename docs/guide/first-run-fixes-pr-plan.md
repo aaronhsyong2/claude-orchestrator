@@ -6,7 +6,7 @@ tags:
   - first-run
   - dogfooding
 created: 2026-05-04
-updated: 2026-05-04
+updated: 2026-05-05
 status: active
 related:
   - "[Parent Epic: #38](https://github.com/aaronhsyong2/claude-orchestrator/issues/38)"
@@ -21,24 +21,26 @@ Logical grouping of issues from the first-run orchestrator fixes (#38) into PRs.
 ## PR 1: Test Isolation + Source Runner
 
 **Branch:** `fix/issue-39-40`
-**Status:** pending
+**PR:** [#50](https://github.com/aaronhsyong2/claude-orchestrator/pull/50)
+**Status:** merged
 
 | Issue | Title | Status |
 |-------|-------|--------|
-| #39 | Test isolation: all tests use temp baseDir | Open |
-| #40 | cli.test.ts: run from source via tsx instead of dist | Open |
+| #39 | Test isolation: all tests use temp baseDir | Closed |
+| #40 | cli.test.ts: run from source via tsx instead of dist | Closed |
 
 ## PR 2: Observability — Readable Logs + Stuck Detection
 
 **Branch:** `feat/issue-41-42`
-**Status:** pending
+**PR:** [#51](https://github.com/aaronhsyong2/claude-orchestrator/pull/51)
+**Status:** open (review complete, ready to merge)
 
 | Issue | Title | Status |
 |-------|-------|--------|
-| #41 | Human-readable worker logs from NDJSON stream | Open |
-| #42 | Stuck detection + elapsed time + live activity in TUI | Open |
+| #41 | Human-readable worker logs from NDJSON stream | Closed |
+| #42 | Stuck detection + elapsed time + live activity in TUI | Closed |
 
-> Depends on: PR 1
+> Depends on: PR 1 (merged)
 
 ## PR 3: Session Manager + Session Resume
 

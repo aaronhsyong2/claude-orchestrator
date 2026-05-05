@@ -13,6 +13,7 @@ interface SidebarProps {
 	readonly selectedGroup: GroupStatus | null;
 	readonly selectedIssueIndex: number;
 	readonly activity: readonly ActivityEvent[];
+	readonly stepLabels?: ReadonlyMap<string, string>;
 }
 
 export function Sidebar({
@@ -22,6 +23,7 @@ export function Sidebar({
 	selectedGroup,
 	selectedIssueIndex,
 	activity,
+	stepLabels,
 }: SidebarProps): ReactNode {
 	return (
 		<Box flexDirection="column" flexGrow={1}>
@@ -29,6 +31,7 @@ export function Sidebar({
 				groups={groups}
 				active={activePanel === 0}
 				selectedIndex={selectedGroupIndex}
+				stepLabels={stepLabels}
 			/>
 			<IssuesPanel
 				group={selectedGroup}

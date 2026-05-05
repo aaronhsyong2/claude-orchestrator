@@ -101,6 +101,16 @@ export interface GroupStatus {
 	readonly last_updated: string;
 }
 
+export interface ActivityAction {
+	readonly timestamp: string;
+	readonly message: string;
+}
+
+export interface GroupActivity {
+	readonly last_activity: string;
+	readonly recent_actions: readonly ActivityAction[];
+}
+
 export interface GitBranchState {
 	readonly branches: readonly string[];
 	readonly branchHasCommits: ReadonlyMap<string, boolean>;
@@ -185,6 +195,7 @@ export type NdjsonMessage = NdjsonSystemMessage | NdjsonAssistantMessage | Ndjso
 export type WorkerEvent =
 	| { readonly event: 'spawned' }
 	| { readonly event: 'message'; readonly data: NdjsonMessage }
+	| { readonly event: 'tool_activity'; readonly data: string }
 	| { readonly event: 'error'; readonly data: Error }
 	| { readonly event: 'exited'; readonly data: number };
 
