@@ -110,6 +110,8 @@ function createMockDeps(overrides?: Partial<SchedulerDeps>): SchedulerDeps {
 			return { exitCode: 0, stdout: '', stderr: '' };
 		}),
 		notify: vi.fn(async () => {}),
+		createSession: vi.fn((_slug: string, issue: string) => `session-${issue}`),
+		getSessionId: vi.fn((_slug: string, issue: string) => `session-${issue}`),
 		...overrides,
 	};
 }
@@ -369,6 +371,7 @@ describe('assignWork', () => {
 			'/tmp/wt',
 			expect.any(Function),
 			'Previous attempt failed due to X',
+			expect.objectContaining({ sessionId: expect.any(String) }),
 		);
 	});
 

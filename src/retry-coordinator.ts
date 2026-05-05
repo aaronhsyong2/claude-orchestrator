@@ -1,6 +1,9 @@
 import type { GroupStatus, OrchestratorConfig, WorkerCapableDeps, WorkerEvent } from './types.js';
 
-export type RetryDeps = WorkerCapableDeps;
+export interface RetryDeps extends WorkerCapableDeps {
+	readonly createSession: (groupSlug: string, issue: string) => string;
+	readonly getSessionId: (groupSlug: string, issue: string) => string | null;
+}
 
 // --- Failure classification ---
 
@@ -60,6 +63,12 @@ export async function executeWithRetry(
 		// Read accumulated context from prior retries
 		const contextContent = deps.readContext(groupSlug, String(issue)) ?? undefined;
 
+		// Resolve session: create on first attempt, retrieve on retries
+		const isRetry = attempt > 1;
+		const sessionId = isRetry
+			? deps.getSessionId(groupSlug, String(issue))
+			: deps.createSession(groupSlug, String(issue));
+
 		// Spawn worker and wait for exit
 		let exitCode: number;
 		try {
@@ -74,6 +83,7 @@ export async function executeWithRetry(
 							if (event.event === 'error') reject(event.data);
 						},
 						contextContent,
+						sessionId ? { sessionId, resume: isRetry } : undefined,
 					);
 				} catch (err) {
 					reject(err);

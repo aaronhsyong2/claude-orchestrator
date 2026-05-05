@@ -137,6 +137,7 @@ export interface SchedulerDeps {
 		worktreePath: string,
 		onEvent: (event: WorkerEvent) => void,
 		contextContent?: string,
+		session?: SessionOptions,
 	) => WorkerHandle;
 	readonly spawnDirectWorker: (
 		id: string,
@@ -155,6 +156,8 @@ export interface SchedulerDeps {
 	readonly execCommand: (cmd: string, args: readonly string[], cwd: string) => Promise<ExecResult>;
 	readonly notify: (message: string, config: NotificationConfig) => Promise<void>;
 	readonly shouldShutdown?: () => ShutdownSignal | null;
+	readonly createSession: (groupSlug: string, issue: string) => string;
+	readonly getSessionId: (groupSlug: string, issue: string) => string | null;
 }
 
 export interface GroupResult {
@@ -215,6 +218,11 @@ export interface ReviewResult {
 	readonly cycle: number;
 }
 
+export interface SessionOptions {
+	readonly sessionId?: string;
+	readonly resume?: boolean;
+}
+
 /** Shared dependency interface for worker-capable modules (retry, self-review, PR review). */
 export interface WorkerCapableDeps {
 	readonly spawnWorker: (
@@ -223,6 +231,7 @@ export interface WorkerCapableDeps {
 		worktreePath: string,
 		onEvent: (event: WorkerEvent) => void,
 		contextContent?: string,
+		session?: SessionOptions,
 	) => WorkerHandle;
 	readonly spawnDirectWorker: (
 		id: string,
@@ -248,6 +257,7 @@ export interface WorkerHandle {
 	readonly issue: string;
 	readonly groupSlug: string;
 	readonly pid: number;
+	readonly sessionId?: string;
 }
 
 // --- Exec command types ---

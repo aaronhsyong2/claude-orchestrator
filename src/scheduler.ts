@@ -1,7 +1,7 @@
 import { startMergeDetector } from './merge-detector.js';
 import { buildPRBody, pushAndCreatePR } from './pr-creator.js';
 import { prReview } from './pr-reviewer.js';
-import { executeWithRetry } from './retry-coordinator.js';
+import { executeWithRetry, type RetryDeps } from './retry-coordinator.js';
 import { selfReview } from './self-reviewer.js';
 import { deriveSlug } from './slug.js';
 import type {
@@ -14,7 +14,6 @@ import type {
 	PlanData,
 	PRGroup,
 	SchedulerDeps,
-	WorkerCapableDeps,
 	WorktreeInfo,
 } from './types.js';
 
@@ -88,8 +87,8 @@ function initGroupStatus(group: PRGroup, slug: string, now: () => string): Group
 	};
 }
 
-/** Extract the common WorkerCapableDeps subset from SchedulerDeps. */
-function coreWorkerDeps(deps: SchedulerDeps, now?: () => string): WorkerCapableDeps {
+/** Extract the common RetryDeps subset from SchedulerDeps. */
+function coreWorkerDeps(deps: SchedulerDeps, now?: () => string): RetryDeps {
 	return {
 		spawnWorker: deps.spawnWorker,
 		spawnDirectWorker: deps.spawnDirectWorker,
@@ -98,6 +97,8 @@ function coreWorkerDeps(deps: SchedulerDeps, now?: () => string): WorkerCapableD
 		writeContext: deps.writeContext,
 		writeGroupStatus: deps.writeGroupStatus,
 		notify: deps.notify,
+		createSession: deps.createSession,
+		getSessionId: deps.getSessionId,
 		now,
 	};
 }

@@ -72,7 +72,7 @@ type SpawnFn = RetryDeps['spawnWorker'];
 /** Creates a spawnWorker mock that exits with given codes per call */
 function makeSpawnWorker(exitCodes: number[]): SpawnFn {
 	let callIndex = 0;
-	return (_issue, _slug, _path, onEvent, _ctx) => {
+	return (_issue, _slug, _path, onEvent, _ctx, _session) => {
 		const code = exitCodes[callIndex++] ?? 0;
 		// Simulate async exit
 		Promise.resolve().then(() => onEvent({ event: 'exited', data: code }));
@@ -87,6 +87,7 @@ function makeVerify(results: VerifyResult[]): RetryDeps['verify'] {
 
 function makeDeps(overrides?: Partial<RetryDeps>): RetryDeps {
 	const contexts = new Map<string, string>();
+	const sessions = new Map<string, string>();
 	return {
 		spawnWorker: makeSpawnWorker([0]),
 		spawnDirectWorker: vi.fn(),
@@ -97,6 +98,12 @@ function makeDeps(overrides?: Partial<RetryDeps>): RetryDeps {
 		},
 		writeGroupStatus: vi.fn(),
 		notify: vi.fn(async () => {}),
+		createSession: (slug, issue) => {
+			const id = `session-${slug}-${issue}`;
+			sessions.set(`${slug}/${issue}`, id);
+			return id;
+		},
+		getSessionId: (slug, issue) => sessions.get(`${slug}/${issue}`) ?? null,
 		...overrides,
 	};
 }
@@ -110,6 +117,34 @@ describe('executeWithRetry', () => {
 			success: true,
 			attempts: 1,
 			escalated: false,
+		});
+	});
+
+	it('passes sessionId to first spawn and resume to retries', async () => {
+		const spawnCalls: { session?: unknown }[] = [];
+		const deps = makeDeps({
+			spawnWorker: (_issue, _slug, _path, onEvent, _ctx, session) => {
+				spawnCalls.push({ session });
+				Promise.resolve().then(() => onEvent({ event: 'exited', data: 0 }));
+				return { id: 'test-1', issue: '15', groupSlug: 'pr-6', pid: 1234 };
+			},
+			verify: makeVerify([
+				{ success: false, failedStep: 'lint', error: 'unused var', steps: [] },
+				{ success: true, steps: [] },
+			]),
+		});
+
+		await executeWithRetry(15, 'pr-6', '/tmp/wt', makeStatus(), makeConfig(), deps);
+
+		// First spawn: sessionId set, resume false
+		expect(spawnCalls[0].session).toEqual({
+			sessionId: 'session-pr-6-15',
+			resume: false,
+		});
+		// Retry: same sessionId, resume true
+		expect(spawnCalls[1].session).toEqual({
+			sessionId: 'session-pr-6-15',
+			resume: true,
 		});
 	});
 

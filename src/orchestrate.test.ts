@@ -120,6 +120,8 @@ function buildMockDeps(
 			return { exitCode: 0, stdout: '', stderr: '' };
 		}),
 		notify: vi.fn().mockResolvedValue(undefined),
+		createSession: vi.fn((_slug: string, issue: string) => `session-${issue}`),
+		getSessionId: vi.fn((_slug: string, issue: string) => `session-${issue}`),
 	};
 }
 
