@@ -7,6 +7,7 @@ import { assignWork, getReadyGroups } from './scheduler.js';
 import type { WorkerRegistry } from './shutdown.js';
 import { createWorkerRegistry, forceKillAll, readShutdownFile } from './shutdown.js';
 import {
+	appendToolActivity,
 	deleteContext as realDeleteContext,
 	readContext as realReadContext,
 	readGroupStatus as realReadGroupStatus,
@@ -68,6 +69,16 @@ async function buildGitState(
 	return { branches, branchHasCommits };
 }
 
+function handleToolActivity(event: WorkerEvent, groupSlug: string): void {
+	if (event.event === 'tool_activity') {
+		try {
+			appendToolActivity(groupSlug, event.data, new Date().toISOString());
+		} catch {
+			// Non-critical — don't crash worker pipeline for activity tracking
+		}
+	}
+}
+
 function wrapSpawnWorker(
 	original: SchedulerDeps['spawnWorker'],
 	registry: WorkerRegistry,
@@ -78,6 +89,7 @@ function wrapSpawnWorker(
 			if (event.event === 'exited') {
 				registry.deregister(pid);
 			}
+			handleToolActivity(event, groupSlug);
 			onEvent(event);
 		};
 		const handle = original(issue, groupSlug, worktreePath, wrappedOnEvent, contextContent);
@@ -97,6 +109,7 @@ function wrapSpawnDirectWorker(
 			if (event.event === 'exited') {
 				registry.deregister(pid);
 			}
+			handleToolActivity(event, groupSlug);
 			onEvent(event);
 		};
 		const handle = original(id, groupSlug, worktreePath, wrappedOnEvent, prompt);

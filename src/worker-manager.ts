@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
+import { parseToolUseActivity } from './tui/observability.js';
 import type {
 	NdjsonAssistantMessage,
 	NdjsonMessage,
@@ -226,6 +227,11 @@ function spawnClaudeProcess(
 			const readable = formatReadableLine(line);
 			if (readable) {
 				readableLogStream.write(`${readable}\n`);
+			}
+
+			const activity = parseToolUseActivity(line);
+			if (activity) {
+				onEvent({ event: 'tool_activity', data: activity });
 			}
 
 			const msg = parseNdjsonLine(line);

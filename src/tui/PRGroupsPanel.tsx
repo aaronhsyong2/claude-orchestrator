@@ -8,9 +8,15 @@ interface PRGroupsPanelProps {
 	readonly groups: readonly GroupStatus[];
 	readonly active: boolean;
 	readonly selectedIndex: number;
+	readonly stepLabels?: ReadonlyMap<string, string>;
 }
 
-export function PRGroupsPanel({ groups, active, selectedIndex }: PRGroupsPanelProps): ReactNode {
+export function PRGroupsPanel({
+	groups,
+	active,
+	selectedIndex,
+	stepLabels,
+}: PRGroupsPanelProps): ReactNode {
 	if (groups.length === 0) {
 		return (
 			<Panel title="PR Groups" active={active}>
@@ -36,6 +42,8 @@ export function PRGroupsPanel({ groups, active, selectedIndex }: PRGroupsPanelPr
 				const total = group.issues_completed.length + group.issues_remaining.length;
 				const done = group.issues_completed.length;
 
+				const label = stepLabels?.get(group.pr_group);
+
 				return (
 					<Box key={group.pr_group} marginLeft={1}>
 						<Text
@@ -44,6 +52,7 @@ export function PRGroupsPanel({ groups, active, selectedIndex }: PRGroupsPanelPr
 						>
 							{icon} {group.pr_group} ({done}/{total})
 						</Text>
+						{label ? <Text dimColor> {label}</Text> : null}
 					</Box>
 				);
 			})}

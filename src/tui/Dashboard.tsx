@@ -31,7 +31,7 @@ export function Dashboard({
 	onQuit,
 }: DashboardProps): ReactNode {
 	const { width, height } = useScreenSize();
-	const { groups, activity } = useStatusPoller(baseDir, pollInterval);
+	const { groups, activity, stepLabels } = useStatusPoller(baseDir, pollInterval);
 
 	const notifConfig = config?.notifications ?? DEFAULT_CONFIG.notifications;
 	useNotifications(groups, notifConfig);
@@ -78,6 +78,7 @@ export function Dashboard({
 							selectedGroup={selectedGroup}
 							selectedIssueIndex={selectedIssueIndex}
 							activity={activity}
+							stepLabels={stepLabels}
 						/>
 					</Box>
 				)}

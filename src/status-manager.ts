@@ -1,6 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { GitBranchState, GroupStatus, GroupStep, ReconcileCorrection } from './types.js';
+import type {
+	GitBranchState,
+	GroupActivity,
+	GroupStatus,
+	GroupStep,
+	ReconcileCorrection,
+} from './types.js';
 import { assertValidSlug } from './validation.js';
 
 const VALID_STEPS: readonly GroupStep[] = [
@@ -72,6 +78,74 @@ export function writeGroupStatus(groupSlug: string, data: GroupStatus, baseDir?:
 	const tmpPath = `${filePath}.tmp`;
 	fs.writeFileSync(tmpPath, `${JSON.stringify(data, null, '\t')}\n`);
 	fs.renameSync(tmpPath, filePath);
+}
+
+// --- Activity file CRUD ---
+
+const MAX_RECENT_ACTIONS = 20;
+
+export function getGroupActivityPath(groupSlug: string, baseDir?: string): string {
+	return path.resolve(baseDir ?? '.', '.orchestrator/status', `${groupSlug}.activity.json`);
+}
+
+export function writeGroupActivity(groupSlug: string, data: GroupActivity, baseDir?: string): void {
+	assertValidSlug(groupSlug);
+	const filePath = getGroupActivityPath(groupSlug, baseDir);
+	const dir = path.dirname(filePath);
+	fs.mkdirSync(dir, { recursive: true });
+
+	const capped: GroupActivity = {
+		...data,
+		recent_actions: data.recent_actions.slice(0, MAX_RECENT_ACTIONS),
+	};
+
+	const tmpPath = `${filePath}.tmp`;
+	fs.writeFileSync(tmpPath, `${JSON.stringify(capped, null, '\t')}\n`);
+	fs.renameSync(tmpPath, filePath);
+}
+
+export function readGroupActivity(groupSlug: string, baseDir?: string): GroupActivity | null {
+	assertValidSlug(groupSlug);
+	const filePath = getGroupActivityPath(groupSlug, baseDir);
+
+	if (!fs.existsSync(filePath)) {
+		return null;
+	}
+
+	try {
+		const content = fs.readFileSync(filePath, 'utf-8');
+		const parsed: unknown = JSON.parse(content);
+		if (
+			typeof parsed === 'object' &&
+			parsed !== null &&
+			typeof (parsed as Record<string, unknown>).last_activity === 'string' &&
+			Array.isArray((parsed as Record<string, unknown>).recent_actions)
+		) {
+			return parsed as GroupActivity;
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+export function appendToolActivity(
+	groupSlug: string,
+	message: string,
+	nowIso: string,
+	baseDir?: string,
+): void {
+	const existing = readGroupActivity(groupSlug, baseDir);
+	const recentActions = existing?.recent_actions ?? [];
+
+	writeGroupActivity(
+		groupSlug,
+		{
+			last_activity: nowIso,
+			recent_actions: [{ timestamp: nowIso, message }, ...recentActions],
+		},
+		baseDir,
+	);
 }
 
 // --- Context file CRUD ---
@@ -146,7 +220,9 @@ export function reconcile(
 		return [];
 	}
 
-	const files = fs.readdirSync(statusDir).filter((f) => f.endsWith('.json'));
+	const files = fs
+		.readdirSync(statusDir)
+		.filter((f) => f.endsWith('.json') && !f.endsWith('.activity.json'));
 	const corrections: ReconcileCorrection[] = [];
 	const branchSet = new Set(gitState.branches);
 

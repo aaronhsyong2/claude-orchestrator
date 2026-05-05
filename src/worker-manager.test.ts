@@ -505,6 +505,36 @@ describe('spawnWorker', () => {
 		);
 	});
 
+	it('emits tool_activity events for tool_use NDJSON lines', async () => {
+		const proc = setupProc();
+		const { events, cb } = collect();
+
+		spawnWorker('10', 'pr-1', tmpDir, cb, undefined, tmpDir);
+
+		proc.stdout.write('{"type":"tool_use","name":"Read","input":{"file_path":"src/types.ts"}}\n');
+		proc.stdout.write('{"type":"tool_use","name":"Bash","input":{"command":"pnpm run test"}}\n');
+		await new Promise((r) => setTimeout(r, 50));
+
+		const activityEvents = events.filter((e) => e.event === 'tool_activity');
+		expect(activityEvents).toHaveLength(2);
+		expect(activityEvents[0]?.data).toBe('Reading src/types.ts');
+		expect(activityEvents[1]?.data).toBe('Running pnpm run test');
+	});
+
+	it('does not emit tool_activity for non-tool_use types', async () => {
+		const proc = setupProc();
+		const { events, cb } = collect();
+
+		spawnWorker('10', 'pr-1', tmpDir, cb, undefined, tmpDir);
+
+		proc.stdout.write('{"type":"assistant","message":"working"}\n');
+		proc.stdout.write('{"type":"result","result":"done","is_error":false}\n');
+		await new Promise((r) => setTimeout(r, 50));
+
+		const activityEvents = events.filter((e) => e.event === 'tool_activity');
+		expect(activityEvents).toHaveLength(0);
+	});
+
 	it('skips invalid NDJSON lines without crashing', async () => {
 		const proc = setupProc();
 		const { events, cb } = collect();

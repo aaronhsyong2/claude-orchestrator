@@ -130,6 +130,33 @@ describe('PRGroupsPanel', () => {
 		);
 		expect(lastFrame()).toContain('\u2699');
 	});
+
+	it('shows elapsed time from stepLabels prop', () => {
+		const groups = [makeGroup({ pr_group: 'pr-5', step: 'verifying' })];
+		const stepLabels = new Map([['pr-5', 'verifying (2m 34s)']]);
+		const { lastFrame } = render(
+			React.createElement(PRGroupsPanel, { groups, active: true, selectedIndex: 0, stepLabels }),
+		);
+		expect(lastFrame()).toContain('verifying (2m 34s)');
+	});
+
+	it('shows stale warning from stepLabels prop', () => {
+		const groups = [makeGroup({ pr_group: 'pr-5', step: 'coding' })];
+		const stepLabels = new Map([['pr-5', 'coding (3m 0s) \u26A0 no activity']]);
+		const { lastFrame } = render(
+			React.createElement(PRGroupsPanel, { groups, active: true, selectedIndex: 0, stepLabels }),
+		);
+		expect(lastFrame()).toContain('\u26A0 no activity');
+	});
+
+	it('falls back to step name when no stepLabels provided', () => {
+		const groups = [makeGroup({ pr_group: 'pr-5', step: 'coding' })];
+		const { lastFrame } = render(
+			React.createElement(PRGroupsPanel, { groups, active: true, selectedIndex: 0 }),
+		);
+		// Should still render without error — just no elapsed
+		expect(lastFrame()).toContain('pr-5');
+	});
 });
 
 describe('IssuesPanel', () => {

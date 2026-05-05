@@ -3,16 +3,19 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+	appendToolActivity,
 	deleteContext,
 	getContextDir,
 	getGroupStatusPath,
 	readContext,
+	readGroupActivity,
 	readGroupStatus,
 	reconcile,
 	writeContext,
+	writeGroupActivity,
 	writeGroupStatus,
 } from './status-manager.js';
-import type { GitBranchState, GroupStatus } from './types.js';
+import type { GitBranchState, GroupActivity, GroupStatus } from './types.js';
 
 let tmpDir: string;
 
@@ -344,5 +347,95 @@ describe('reconcile', () => {
 		const corrections = reconcile(gitState, tmpDir);
 		expect(corrections).toHaveLength(1);
 		expect(corrections[0]?.slug).toBe('pr-2');
+	});
+});
+
+describe('writeGroupActivity / readGroupActivity', () => {
+	it('writes and reads activity file', () => {
+		const activity: GroupActivity = {
+			last_activity: '2026-05-05T10:02:30.000Z',
+			recent_actions: [
+				{ timestamp: '2026-05-05T10:02:30.000Z', message: 'Reading src/types.ts' },
+				{ timestamp: '2026-05-05T10:02:28.000Z', message: 'Running pnpm run test' },
+			],
+		};
+
+		writeGroupActivity('pr-1', activity, tmpDir);
+		const result = readGroupActivity('pr-1', tmpDir);
+
+		expect(result).toEqual(activity);
+	});
+
+	it('returns null when file does not exist', () => {
+		expect(readGroupActivity('pr-nonexistent', tmpDir)).toBeNull();
+	});
+
+	it('returns null for malformed JSON', () => {
+		const statusDir = path.join(tmpDir, '.orchestrator', 'status');
+		fs.mkdirSync(statusDir, { recursive: true });
+		fs.writeFileSync(path.join(statusDir, 'pr-1.activity.json'), 'not json');
+
+		expect(readGroupActivity('pr-1', tmpDir)).toBeNull();
+	});
+
+	it('caps recent_actions at 20 entries', () => {
+		const actions = Array.from({ length: 25 }, (_, i) => ({
+			timestamp: `2026-05-05T10:00:${String(i).padStart(2, '0')}.000Z`,
+			message: `Action ${i}`,
+		}));
+		const activity: GroupActivity = {
+			last_activity: '2026-05-05T10:00:24.000Z',
+			recent_actions: actions,
+		};
+
+		writeGroupActivity('pr-1', activity, tmpDir);
+		const result = readGroupActivity('pr-1', tmpDir);
+
+		expect(result?.recent_actions).toHaveLength(20);
+		// Keeps first 20 of input array (caller orders newest-first)
+		expect(result?.recent_actions[0]?.message).toBe('Action 0');
+	});
+
+	it('rejects invalid slug', () => {
+		const activity: GroupActivity = { last_activity: '', recent_actions: [] };
+		expect(() => writeGroupActivity('../evil', activity, tmpDir)).toThrow(/Invalid slug/);
+		expect(() => readGroupActivity('../evil', tmpDir)).toThrow(/Invalid slug/);
+	});
+});
+
+describe('appendToolActivity', () => {
+	it('creates activity file if none exists', () => {
+		appendToolActivity('pr-1', 'Reading src/types.ts', '2026-05-05T10:00:00.000Z', tmpDir);
+
+		const result = readGroupActivity('pr-1', tmpDir);
+		expect(result?.last_activity).toBe('2026-05-05T10:00:00.000Z');
+		expect(result?.recent_actions).toHaveLength(1);
+		expect(result?.recent_actions[0]?.message).toBe('Reading src/types.ts');
+	});
+
+	it('prepends new action and updates last_activity', () => {
+		appendToolActivity('pr-1', 'Reading src/types.ts', '2026-05-05T10:00:00.000Z', tmpDir);
+		appendToolActivity('pr-1', 'Running tests', '2026-05-05T10:00:05.000Z', tmpDir);
+
+		const result = readGroupActivity('pr-1', tmpDir);
+		expect(result?.last_activity).toBe('2026-05-05T10:00:05.000Z');
+		expect(result?.recent_actions).toHaveLength(2);
+		expect(result?.recent_actions[0]?.message).toBe('Running tests');
+		expect(result?.recent_actions[1]?.message).toBe('Reading src/types.ts');
+	});
+
+	it('caps at 20 entries', () => {
+		for (let i = 0; i < 25; i++) {
+			appendToolActivity(
+				'pr-1',
+				`Action ${i}`,
+				`2026-05-05T10:00:${String(i).padStart(2, '0')}.000Z`,
+				tmpDir,
+			);
+		}
+
+		const result = readGroupActivity('pr-1', tmpDir);
+		expect(result?.recent_actions).toHaveLength(20);
+		expect(result?.recent_actions[0]?.message).toBe('Action 24');
 	});
 });
