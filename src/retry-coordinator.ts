@@ -1,4 +1,10 @@
-import type { GroupStatus, OrchestratorConfig, WorkerCapableDeps, WorkerEvent } from './types.js';
+import type {
+	GroupStatus,
+	IssueContent,
+	OrchestratorConfig,
+	WorkerCapableDeps,
+	WorkerEvent,
+} from './types.js';
 
 export interface RetryDeps extends WorkerCapableDeps {
 	readonly createSession: (groupSlug: string, issue: string) => string;
@@ -51,6 +57,7 @@ export async function executeWithRetry(
 	currentStatus: GroupStatus,
 	config: OrchestratorConfig,
 	deps: RetryDeps,
+	issueContent?: IssueContent,
 ): Promise<RetryResult> {
 	const maxRetries = config.max_retries_on_fail;
 	const now = deps.now ?? (() => new Date().toISOString());
@@ -91,6 +98,7 @@ export async function executeWithRetry(
 						},
 						contextContent,
 						sessionId ? { sessionId, resume: isRetry } : undefined,
+						issueContent,
 					);
 				} catch (err) {
 					reject(err);

@@ -94,9 +94,45 @@ describe('buildPrompt', () => {
 
 	it('uses route with resume context', () => {
 		const result = buildPrompt('10', 'worker exited', { route: '/tdd', resume: true });
-		expect(result).toBe(
-			'/tdd #10\n\nContext from previous attempt (session resumed):\nworker exited',
-		);
+		expect(result).toContain('/tdd #10');
+		expect(result).toContain('Context from previous attempt (session resumed):');
+		expect(result).toContain('worker exited');
+	});
+
+	it('includes issue content and constraints when issueContent provided', () => {
+		const result = buildPrompt('46', undefined, {
+			issueContent: {
+				title: 'Pre-fetch issue body',
+				body: '## What to build\n\nSome spec',
+				agentBrief: '## Agent Brief\n\n- Goal: build it',
+			},
+		});
+		expect(result).toContain('Implement issue #46');
+		expect(result).toContain('## Issue: Pre-fetch issue body');
+		expect(result).toContain('## What to build');
+		expect(result).toContain('## Agent Brief');
+		expect(result).toContain('non-interactive mode');
+		expect(result).toContain('do not `cd` elsewhere');
+	});
+
+	it('includes both issue content and retry context', () => {
+		const result = buildPrompt('46', 'failed: lint', {
+			issueContent: { title: 'Title', body: 'Body', agentBrief: null },
+		});
+		expect(result).toContain('## Issue: Title');
+		expect(result).toContain('non-interactive mode');
+		expect(result).toContain('Context from previous attempt:');
+		expect(result).toContain('failed: lint');
+	});
+
+	it('includes issue content with route', () => {
+		const result = buildPrompt('46', undefined, {
+			route: '/tdd',
+			issueContent: { title: 'Title', body: 'Body', agentBrief: null },
+		});
+		expect(result).toContain('/tdd #46');
+		expect(result).toContain('## Issue: Title');
+		expect(result).toContain('non-interactive mode');
 	});
 });
 

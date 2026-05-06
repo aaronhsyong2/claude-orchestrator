@@ -2,8 +2,10 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
+import { formatIssueContext, WORKER_CONSTRAINTS } from './issue-fetcher.js';
 import { parseToolUseActivity } from './tui/observability.js';
 import type {
+	IssueContent,
 	NdjsonAssistantMessage,
 	NdjsonMessage,
 	NdjsonResultMessage,
@@ -20,16 +22,27 @@ const KILL_POLL_INTERVAL_MS = 100;
 export function buildPrompt(
 	issueNumber: string,
 	contextContent?: string,
-	options?: { resume?: boolean; route?: string },
+	options?: { resume?: boolean; route?: string; issueContent?: IssueContent },
 ): string {
 	const base = options?.route
 		? `${options.route} #${issueNumber}`
 		: `Implement issue #${issueNumber}`;
-	if (!contextContent) return base;
-	if (options?.resume) {
-		return `${base}\n\nContext from previous attempt (session resumed):\n${contextContent}`;
+
+	const parts: string[] = [base];
+
+	if (options?.issueContent) {
+		parts.push('', formatIssueContext(options.issueContent));
+		parts.push('', WORKER_CONSTRAINTS);
 	}
-	return `${base}\n\nContext from previous attempt:\n${contextContent}`;
+
+	if (contextContent) {
+		const label = options?.resume
+			? 'Context from previous attempt (session resumed):'
+			: 'Context from previous attempt:';
+		parts.push('', `${label}\n${contextContent}`);
+	}
+
+	return parts.join('\n');
 }
 
 export function getLogDir(groupSlug: string, baseDir?: string): string {
@@ -317,12 +330,16 @@ export function spawnWorker(
 	contextContent?: string,
 	baseDir?: string,
 	session?: SessionOptions,
+	issueContent?: IssueContent,
 ): WorkerHandle {
 	assertValidSlug(groupSlug);
 	assertValidIssue(issue);
 	assertValidWorktreePath(worktreePath);
 
-	const prompt = buildPrompt(issue, contextContent, { resume: session?.resume });
+	const prompt = buildPrompt(issue, contextContent, {
+		resume: session?.resume,
+		issueContent,
+	});
 	return spawnClaudeProcess(issue, groupSlug, worktreePath, prompt, onEvent, baseDir, session);
 }
 

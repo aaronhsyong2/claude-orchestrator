@@ -372,7 +372,84 @@ describe('assignWork', () => {
 			expect.any(Function),
 			'Previous attempt failed due to X',
 			expect.objectContaining({ sessionId: expect.any(String) }),
+			undefined,
 		);
+	});
+
+	it('passes pre-fetched issue content to worker', async () => {
+		const issueContent = {
+			title: 'Pre-fetch test',
+			body: 'Some body',
+			agentBrief: '## Agent Brief\n\n- Goal: test',
+		};
+		const group = makeGroup({ pr_number: 1, branch: 'feat/prefetch' });
+		const deps = createMockDeps({
+			fetchIssueContent: vi.fn(async () => issueContent),
+		});
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(deps.fetchIssueContent).toHaveBeenCalledWith(10, '/tmp/wt');
+		expect(deps.spawnWorker).toHaveBeenCalledWith(
+			'10',
+			expect.any(String),
+			'/tmp/wt',
+			expect.any(Function),
+			undefined,
+			expect.objectContaining({ sessionId: expect.any(String) }),
+			issueContent,
+		);
+	});
+
+	it('spawns worker without issue content when fetchIssueContent not provided', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/nofetch' });
+		const deps = createMockDeps(); // no fetchIssueContent
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(deps.spawnWorker).toHaveBeenCalledWith(
+			'10',
+			expect.any(String),
+			'/tmp/wt',
+			expect.any(Function),
+			undefined,
+			expect.objectContaining({ sessionId: expect.any(String) }),
+			undefined,
+		);
+	});
+
+	it('falls back gracefully when fetchIssueContent returns null', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/fetchnull' });
+		const deps = createMockDeps({
+			fetchIssueContent: vi.fn(async () => null),
+		});
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(deps.spawnWorker).toHaveBeenCalledWith(
+			'10',
+			expect.any(String),
+			'/tmp/wt',
+			expect.any(Function),
+			undefined,
+			expect.objectContaining({ sessionId: expect.any(String) }),
+			undefined,
+		);
+	});
+
+	it('falls back gracefully when fetchIssueContent throws', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/fetcherr' });
+		const deps = createMockDeps({
+			fetchIssueContent: vi.fn(async () => {
+				throw new Error('network failure');
+			}),
+		});
+
+		const result = await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		// Worker still spawns — pre-fetch failure is non-fatal
+		expect(deps.spawnWorker).toHaveBeenCalled();
+		expect(result.results[0]?.completed).toBe(true);
 	});
 
 	it('deletes context on success', async () => {

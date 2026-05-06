@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { loadConfig as realLoadConfig } from './config.js';
+import { fetchIssueContent } from './issue-fetcher.js';
 import { parsePlan as realParsePlan } from './parser.js';
 import { hasExistingState, resumeFromState } from './resume.js';
 import { assignWork, getReadyGroups } from './scheduler.js';
@@ -89,7 +90,7 @@ function wrapSpawnWorker(
 	original: SchedulerDeps['spawnWorker'],
 	registry: WorkerRegistry,
 ): SchedulerDeps['spawnWorker'] {
-	return (issue, groupSlug, worktreePath, onEvent, contextContent?, session?) => {
+	return (issue, groupSlug, worktreePath, onEvent, contextContent?, session?, issueContent?) => {
 		let pid = -1;
 		const wrappedOnEvent = (event: WorkerEvent): void => {
 			if (event.event === 'exited') {
@@ -105,6 +106,7 @@ function wrapSpawnWorker(
 			wrappedOnEvent,
 			contextContent,
 			session,
+			issueContent,
 		);
 		pid = handle.pid;
 		registry.register(pid);
@@ -226,8 +228,25 @@ function buildRealDeps(): SchedulerDeps {
 	return {
 		createWorktree: realCreate,
 		removeWorktree: realRemove,
-		spawnWorker: (issue, groupSlug, worktreePath, onEvent, contextContent?, session?) =>
-			realSpawnWorker(issue, groupSlug, worktreePath, onEvent, contextContent, undefined, session),
+		spawnWorker: (
+			issue,
+			groupSlug,
+			worktreePath,
+			onEvent,
+			contextContent?,
+			session?,
+			issueContent?,
+		) =>
+			realSpawnWorker(
+				issue,
+				groupSlug,
+				worktreePath,
+				onEvent,
+				contextContent,
+				undefined,
+				session,
+				issueContent,
+			),
 		spawnDirectWorker: realSpawnDirectWorker,
 		killWorker: realKillWorker,
 		verify: realVerify,
@@ -240,6 +259,10 @@ function buildRealDeps(): SchedulerDeps {
 		notify: realNotify,
 		createSession: realCreateSession,
 		getSessionId: realGetSessionId,
+		fetchIssueContent: (issueNumber, cwd) => {
+			const config = realLoadConfig();
+			return fetchIssueContent(issueNumber, config.issue_source.repo, cwd, realExecCommand);
+		},
 	};
 }
 

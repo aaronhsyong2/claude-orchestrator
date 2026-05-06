@@ -1,3 +1,9 @@
+export interface IssueContent {
+	readonly title: string;
+	readonly body: string;
+	readonly agentBrief: string | null;
+}
+
 export interface VerifyCommand {
 	readonly name: string;
 	readonly command: string;
@@ -140,6 +146,7 @@ export interface SchedulerDeps {
 		onEvent: (event: WorkerEvent) => void,
 		contextContent?: string,
 		session?: SessionOptions,
+		issueContent?: IssueContent,
 	) => WorkerHandle;
 	readonly spawnDirectWorker: (
 		id: string,
@@ -160,6 +167,7 @@ export interface SchedulerDeps {
 	readonly shouldShutdown?: () => ShutdownSignal | null;
 	readonly createSession: (groupSlug: string, issue: string) => string;
 	readonly getSessionId: (groupSlug: string, issue: string) => string | null;
+	readonly fetchIssueContent?: (issueNumber: number, cwd: string) => Promise<IssueContent | null>;
 }
 
 export interface GroupResult {
@@ -234,6 +242,7 @@ export interface WorkerCapableDeps {
 		onEvent: (event: WorkerEvent) => void,
 		contextContent?: string,
 		session?: SessionOptions,
+		issueContent?: IssueContent,
 	) => WorkerHandle;
 	readonly spawnDirectWorker: (
 		id: string,

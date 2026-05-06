@@ -8,6 +8,7 @@ import type {
 	AssignWorkResult,
 	ExecResult,
 	GroupStatus,
+	IssueContent,
 	MergeDetectorDeps,
 	MergeDetectorResult,
 	OrchestratorConfig,
@@ -220,6 +221,22 @@ async function processIssue(
 			return { success: false, error: installResult.error };
 		}
 
+		// Pre-fetch issue content (graceful fallback on failure)
+		let issueContent: IssueContent | undefined;
+		if (deps.fetchIssueContent) {
+			try {
+				const fetched = await deps.fetchIssueContent(issueNumber, worktreeInfo.worktreePath);
+				if (fetched) {
+					issueContent = fetched;
+				}
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				process.stderr.write(
+					`[scheduler] issue pre-fetch failed for #${issueNumber}: ${message}\n`,
+				);
+			}
+		}
+
 		// coding
 		safeWriteStatus(deps, slug, {
 			...freshStatus(slug, group, deps, now),
@@ -237,6 +254,7 @@ async function processIssue(
 			currentStatus,
 			config,
 			coreWorkerDeps(deps, now),
+			issueContent,
 		);
 
 		if (!retryResult.success) {
