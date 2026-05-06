@@ -118,6 +118,12 @@ describe('validateConfig', () => {
 		const { routing: _, ...withoutRouting } = { ...DEFAULT_CONFIG, routing: undefined };
 		expect(validateConfig(withoutRouting)).toBe(true);
 	});
+
+	it('rejects config with invalid routing shape', () => {
+		expect(validateConfig({ ...DEFAULT_CONFIG, routing: 42 })).toBe(false);
+		expect(validateConfig({ ...DEFAULT_CONFIG, routing: ['/tdd'] })).toBe(false);
+		expect(validateConfig({ ...DEFAULT_CONFIG, routing: null })).toBe(false);
+	});
 });
 
 describe('loadConfig', () => {

@@ -91,6 +91,13 @@ describe('buildPrompt', () => {
 		const result = buildPrompt('10', 'some context', { route: '/tdd' });
 		expect(result).toBe('/tdd #10\n\nContext from previous attempt:\nsome context');
 	});
+
+	it('uses route with resume context', () => {
+		const result = buildPrompt('10', 'worker exited', { route: '/tdd', resume: true });
+		expect(result).toBe(
+			'/tdd #10\n\nContext from previous attempt (session resumed):\nworker exited',
+		);
+	});
 });
 
 describe('getLogDir', () => {

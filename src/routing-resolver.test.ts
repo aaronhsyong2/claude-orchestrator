@@ -38,6 +38,22 @@ describe('resolveRoute', () => {
 		expect(result).toBeNull();
 	});
 
+	it('returns null when labels is an empty array', () => {
+		const result = resolveRoute({
+			configRouting: { 'bug+ready-for-agent': '/diagnose' },
+			labels: [],
+		});
+		expect(result).toBeNull();
+	});
+
+	it('returns null when labels partially match a multi-label key', () => {
+		const result = resolveRoute({
+			configRouting: { 'bug+ready-for-agent': '/diagnose' },
+			labels: ['bug'],
+		});
+		expect(result).toBeNull();
+	});
+
 	it('plan override takes precedence over config routing match', () => {
 		const result = resolveRoute({
 			planOverride: '/custom-skill',
