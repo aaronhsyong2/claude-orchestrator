@@ -62,16 +62,25 @@ export async function fetchIssueContent(
 			['issue', 'view', String(issueNumber), '--repo', repo, '--json', 'title,body,comments'],
 			cwd,
 		);
-	} catch {
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		process.stderr.write(`[issue-fetcher] gh issue view failed for #${issueNumber}: ${message}\n`);
 		return null;
 	}
 
-	if (result.exitCode !== 0) return null;
+	if (result.exitCode !== 0) {
+		process.stderr.write(
+			`[issue-fetcher] gh issue view exited ${result.exitCode} for #${issueNumber}: ${result.stderr}\n`,
+		);
+		return null;
+	}
 
 	let parsed: { title?: string; body?: string; comments?: Array<{ body?: string }> };
 	try {
 		parsed = JSON.parse(result.stdout) as typeof parsed;
-	} catch {
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		process.stderr.write(`[issue-fetcher] JSON parse failed for #${issueNumber}: ${message}\n`);
 		return null;
 	}
 

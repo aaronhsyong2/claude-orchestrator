@@ -58,6 +58,7 @@ export async function executeWithRetry(
 	config: OrchestratorConfig,
 	deps: RetryDeps,
 	issueContent?: IssueContent,
+	route?: string,
 ): Promise<RetryResult> {
 	const maxRetries = config.max_retries_on_fail;
 	const now = deps.now ?? (() => new Date().toISOString());
@@ -99,6 +100,7 @@ export async function executeWithRetry(
 						contextContent,
 						sessionId ? { sessionId, resume: isRetry } : undefined,
 						issueContent,
+						route,
 					);
 				} catch (err) {
 					reject(err);

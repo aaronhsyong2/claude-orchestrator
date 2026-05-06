@@ -32,8 +32,10 @@ export function buildPrompt(
 
 	if (options?.issueContent) {
 		parts.push('', formatIssueContext(options.issueContent));
-		parts.push('', WORKER_CONSTRAINTS);
 	}
+
+	// Always inject constraints — even if issue pre-fetch failed
+	parts.push('', WORKER_CONSTRAINTS);
 
 	if (contextContent) {
 		const label = options?.resume
@@ -331,6 +333,7 @@ export function spawnWorker(
 	baseDir?: string,
 	session?: SessionOptions,
 	issueContent?: IssueContent,
+	route?: string,
 ): WorkerHandle {
 	assertValidSlug(groupSlug);
 	assertValidIssue(issue);
@@ -339,6 +342,7 @@ export function spawnWorker(
 	const prompt = buildPrompt(issue, contextContent, {
 		resume: session?.resume,
 		issueContent,
+		route,
 	});
 	return spawnClaudeProcess(issue, groupSlug, worktreePath, prompt, onEvent, baseDir, session);
 }

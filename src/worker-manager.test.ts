@@ -56,40 +56,47 @@ function createFakeProc(pid: number | undefined = 12345): FakeProc {
 
 describe('buildPrompt', () => {
 	it('builds direct implementation prompt without context', () => {
-		expect(buildPrompt('10')).toBe('Implement issue #10');
+		const result = buildPrompt('10');
+		expect(result).toContain('Implement issue #10');
+		expect(result).toContain('non-interactive mode');
 	});
 
 	it('builds prompt with context', () => {
 		const result = buildPrompt('10', 'Previous approach failed due to X');
-		expect(result).toBe(
-			'Implement issue #10\n\nContext from previous attempt:\nPrevious approach failed due to X',
-		);
+		expect(result).toContain('Implement issue #10');
+		expect(result).toContain('Context from previous attempt:\nPrevious approach failed due to X');
+		expect(result).toContain('non-interactive mode');
 	});
 
 	it('handles empty context as no context', () => {
-		expect(buildPrompt('5', '')).toBe('Implement issue #5');
+		const result = buildPrompt('5', '');
+		expect(result).toContain('Implement issue #5');
+		expect(result).not.toContain('Context from previous attempt');
 	});
 
 	it('builds resume prompt with session-resumed context', () => {
 		const result = buildPrompt('10', 'worker exited with code 1', { resume: true });
-		expect(result).toBe(
-			'Implement issue #10\n\nContext from previous attempt (session resumed):\nworker exited with code 1',
-		);
+		expect(result).toContain('Implement issue #10');
+		expect(result).toContain('Context from previous attempt (session resumed):');
+		expect(result).toContain('worker exited with code 1');
 	});
 
 	it('builds normal prompt when resume set but no context', () => {
 		const result = buildPrompt('10', undefined, { resume: true });
-		expect(result).toBe('Implement issue #10');
+		expect(result).toContain('Implement issue #10');
+		expect(result).not.toContain('Context from previous attempt');
 	});
 
 	it('uses route as prompt prefix when provided', () => {
 		const result = buildPrompt('10', undefined, { route: '/pick-up' });
-		expect(result).toBe('/pick-up #10');
+		expect(result).toContain('/pick-up #10');
+		expect(result).toContain('non-interactive mode');
 	});
 
 	it('uses route with context', () => {
 		const result = buildPrompt('10', 'some context', { route: '/tdd' });
-		expect(result).toBe('/tdd #10\n\nContext from previous attempt:\nsome context');
+		expect(result).toContain('/tdd #10');
+		expect(result).toContain('Context from previous attempt:\nsome context');
 	});
 
 	it('uses route with resume context', () => {
@@ -133,6 +140,14 @@ describe('buildPrompt', () => {
 		expect(result).toContain('/tdd #46');
 		expect(result).toContain('## Issue: Title');
 		expect(result).toContain('non-interactive mode');
+	});
+
+	it('always includes constraints even without issueContent', () => {
+		const result = buildPrompt('10');
+		expect(result).toContain('## System Constraints');
+		expect(result).toContain('non-interactive mode');
+		expect(result).toContain('do not `cd` elsewhere');
+		expect(result).not.toContain('## Issue:');
 	});
 });
 
@@ -447,7 +462,13 @@ describe('spawnWorker', () => {
 
 		expect(spawnMock).toHaveBeenCalledWith(
 			'claude',
-			['-p', '--verbose', '--output-format', 'stream-json', 'Implement issue #10'],
+			[
+				'-p',
+				'--verbose',
+				'--output-format',
+				'stream-json',
+				expect.stringContaining('Implement issue #10'),
+			],
 			expect.objectContaining({
 				cwd: tmpDir,
 				stdio: ['ignore', 'pipe', 'pipe'],
@@ -457,6 +478,9 @@ describe('spawnWorker', () => {
 				}),
 			}),
 		);
+		// Verify constraints are in the prompt
+		const prompt = (spawnMock.mock.calls[0]?.[1] as string[])?.[4];
+		expect(prompt).toContain('non-interactive mode');
 	});
 
 	it('emits spawned event via nextTick', async () => {
@@ -562,17 +586,10 @@ describe('spawnWorker', () => {
 
 		spawnWorker('10', 'pr-1', tmpDir, () => {}, 'Previous context here', tmpDir);
 
-		expect(spawnMock).toHaveBeenCalledWith(
-			'claude',
-			[
-				'-p',
-				'--verbose',
-				'--output-format',
-				'stream-json',
-				'Implement issue #10\n\nContext from previous attempt:\nPrevious context here',
-			],
-			expect.anything(),
-		);
+		const prompt = (spawnMock.mock.calls[0]?.[1] as string[])?.[4] ?? '';
+		expect(prompt).toContain('Implement issue #10');
+		expect(prompt).toContain('Context from previous attempt:\nPrevious context here');
+		expect(prompt).toContain('non-interactive mode');
 	});
 
 	it('includes --session-id flag on first spawn when sessionId provided', () => {

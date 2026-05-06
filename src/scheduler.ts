@@ -2,6 +2,7 @@ import { startMergeDetector } from './merge-detector.js';
 import { buildPRBody, pushAndCreatePR } from './pr-creator.js';
 import { prReview } from './pr-reviewer.js';
 import { executeWithRetry, type RetryDeps } from './retry-coordinator.js';
+import { resolveRoute } from './routing-resolver.js';
 import { selfReview } from './self-reviewer.js';
 import { deriveSlug } from './slug.js';
 import type {
@@ -221,6 +222,16 @@ async function processIssue(
 			return { success: false, error: installResult.error };
 		}
 
+		// Resolve route for this issue.
+		// Label-based routing (config.routing + labels) is not yet wired — labels
+		// are GitHub metadata not currently available in PlanData. Only plan-level
+		// overrides (group.route) are resolved for now.
+		const route =
+			resolveRoute({
+				planOverride: group.route,
+				configRouting: config.routing,
+			}) ?? undefined;
+
 		// Pre-fetch issue content (graceful fallback on failure)
 		let issueContent: IssueContent | undefined;
 		if (deps.fetchIssueContent) {
@@ -255,6 +266,7 @@ async function processIssue(
 			config,
 			coreWorkerDeps(deps, now),
 			issueContent,
+			route,
 		);
 
 		if (!retryResult.success) {

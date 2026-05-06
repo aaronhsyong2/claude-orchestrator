@@ -373,6 +373,7 @@ describe('assignWork', () => {
 			'Previous attempt failed due to X',
 			expect.objectContaining({ sessionId: expect.any(String) }),
 			undefined,
+			undefined,
 		);
 	});
 
@@ -398,6 +399,7 @@ describe('assignWork', () => {
 			undefined,
 			expect.objectContaining({ sessionId: expect.any(String) }),
 			issueContent,
+			undefined,
 		);
 	});
 
@@ -414,6 +416,7 @@ describe('assignWork', () => {
 			expect.any(Function),
 			undefined,
 			expect.objectContaining({ sessionId: expect.any(String) }),
+			undefined,
 			undefined,
 		);
 	});
@@ -434,6 +437,7 @@ describe('assignWork', () => {
 			undefined,
 			expect.objectContaining({ sessionId: expect.any(String) }),
 			undefined,
+			undefined,
 		);
 	});
 
@@ -450,6 +454,48 @@ describe('assignWork', () => {
 		// Worker still spawns — pre-fetch failure is non-fatal
 		expect(deps.spawnWorker).toHaveBeenCalled();
 		expect(result.results[0]?.completed).toBe(true);
+	});
+
+	it('passes plan-level route to worker', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/routed', route: '/tdd' });
+		const deps = createMockDeps();
+
+		await assignWork(makePlan([group]), new Set(), BASE_CONFIG, deps, now);
+
+		expect(deps.spawnWorker).toHaveBeenCalledWith(
+			'10',
+			expect.any(String),
+			'/tmp/wt',
+			expect.any(Function),
+			undefined,
+			expect.objectContaining({ sessionId: expect.any(String) }),
+			undefined,
+			'/tdd',
+		);
+	});
+
+	it('does not apply config routing without labels (label-based routing not yet wired)', async () => {
+		const group = makeGroup({ pr_number: 1, branch: 'feat/configroute' });
+		const configWithRouting = {
+			...BASE_CONFIG,
+			routing: { 'enhancement+ready-for-agent': '/pick-up' },
+		};
+		const deps = createMockDeps();
+
+		await assignWork(makePlan([group]), new Set(), configWithRouting, deps, now);
+
+		// Config routing requires labels, which are not yet available in PlanData.
+		// Only plan-level group.route is wired; config routing is infrastructure for future use.
+		expect(deps.spawnWorker).toHaveBeenCalledWith(
+			'10',
+			expect.any(String),
+			'/tmp/wt',
+			expect.any(Function),
+			undefined,
+			expect.objectContaining({ sessionId: expect.any(String) }),
+			undefined,
+			undefined,
+		);
 	});
 
 	it('deletes context on success', async () => {

@@ -124,6 +124,11 @@ describe('validateConfig', () => {
 		expect(validateConfig({ ...DEFAULT_CONFIG, routing: ['/tdd'] })).toBe(false);
 		expect(validateConfig({ ...DEFAULT_CONFIG, routing: null })).toBe(false);
 	});
+
+	it('rejects config with non-string routing values', () => {
+		expect(validateConfig({ ...DEFAULT_CONFIG, routing: { key: 42 } })).toBe(false);
+		expect(validateConfig({ ...DEFAULT_CONFIG, routing: { key: null } })).toBe(false);
+	});
 });
 
 describe('loadConfig', () => {

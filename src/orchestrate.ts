@@ -90,7 +90,16 @@ function wrapSpawnWorker(
 	original: SchedulerDeps['spawnWorker'],
 	registry: WorkerRegistry,
 ): SchedulerDeps['spawnWorker'] {
-	return (issue, groupSlug, worktreePath, onEvent, contextContent?, session?, issueContent?) => {
+	return (
+		issue,
+		groupSlug,
+		worktreePath,
+		onEvent,
+		contextContent?,
+		session?,
+		issueContent?,
+		route?,
+	) => {
 		let pid = -1;
 		const wrappedOnEvent = (event: WorkerEvent): void => {
 			if (event.event === 'exited') {
@@ -107,6 +116,7 @@ function wrapSpawnWorker(
 			contextContent,
 			session,
 			issueContent,
+			route,
 		);
 		pid = handle.pid;
 		registry.register(pid);
@@ -142,7 +152,7 @@ export async function orchestrate(
 	const config = (overrides?.loadConfig ?? realLoadConfig)();
 	const plan = await (overrides?.parsePlan ?? realParsePlan)(planPath);
 
-	const rawDeps = overrides?.deps ?? buildRealDeps();
+	const rawDeps = overrides?.deps ?? buildRealDeps(config.issue_source.repo);
 	const progressDeps = wrapWithProgress(rawDeps, onProgress);
 
 	// Create worker PID registry for force shutdown
@@ -224,7 +234,7 @@ async function realExecCommand(
 	}
 }
 
-function buildRealDeps(): SchedulerDeps {
+function buildRealDeps(repo: string): SchedulerDeps {
 	return {
 		createWorktree: realCreate,
 		removeWorktree: realRemove,
@@ -236,6 +246,7 @@ function buildRealDeps(): SchedulerDeps {
 			contextContent?,
 			session?,
 			issueContent?,
+			route?,
 		) =>
 			realSpawnWorker(
 				issue,
@@ -246,6 +257,7 @@ function buildRealDeps(): SchedulerDeps {
 				undefined,
 				session,
 				issueContent,
+				route,
 			),
 		spawnDirectWorker: realSpawnDirectWorker,
 		killWorker: realKillWorker,
@@ -260,8 +272,7 @@ function buildRealDeps(): SchedulerDeps {
 		createSession: realCreateSession,
 		getSessionId: realGetSessionId,
 		fetchIssueContent: (issueNumber, cwd) => {
-			const config = realLoadConfig();
-			return fetchIssueContent(issueNumber, config.issue_source.repo, cwd, realExecCommand);
+			return fetchIssueContent(issueNumber, repo, cwd, realExecCommand);
 		},
 	};
 }

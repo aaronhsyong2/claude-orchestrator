@@ -147,6 +147,7 @@ export interface SchedulerDeps {
 		contextContent?: string,
 		session?: SessionOptions,
 		issueContent?: IssueContent,
+		route?: string,
 	) => WorkerHandle;
 	readonly spawnDirectWorker: (
 		id: string,
@@ -243,6 +244,7 @@ export interface WorkerCapableDeps {
 		contextContent?: string,
 		session?: SessionOptions,
 		issueContent?: IssueContent,
+		route?: string,
 	) => WorkerHandle;
 	readonly spawnDirectWorker: (
 		id: string,
