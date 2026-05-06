@@ -351,6 +351,8 @@ describe('orchestrate', () => {
 			expect.any(Function),
 			undefined,
 			expect.objectContaining({ sessionId: expect.any(String), resume: false }),
+			undefined,
+			undefined,
 		);
 	});
 });

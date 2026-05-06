@@ -2,8 +2,10 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
+import { formatIssueContext, WORKER_CONSTRAINTS } from './issue-fetcher.js';
 import { parseToolUseActivity } from './tui/observability.js';
 import type {
+	IssueContent,
 	NdjsonAssistantMessage,
 	NdjsonMessage,
 	NdjsonResultMessage,
@@ -20,14 +22,29 @@ const KILL_POLL_INTERVAL_MS = 100;
 export function buildPrompt(
 	issueNumber: string,
 	contextContent?: string,
-	options?: { resume?: boolean },
+	options?: { resume?: boolean; route?: string; issueContent?: IssueContent },
 ): string {
-	const base = `/pick-up #${issueNumber}`;
-	if (!contextContent) return base;
-	if (options?.resume) {
-		return `${base}\n\nContext from previous attempt (session resumed):\n${contextContent}`;
+	const base = options?.route
+		? `${options.route} #${issueNumber}`
+		: `Implement issue #${issueNumber}`;
+
+	const parts: string[] = [base];
+
+	if (options?.issueContent) {
+		parts.push('', formatIssueContext(options.issueContent));
 	}
-	return `${base}\n\nContext from previous attempt:\n${contextContent}`;
+
+	// Always inject constraints — even if issue pre-fetch failed
+	parts.push('', WORKER_CONSTRAINTS);
+
+	if (contextContent) {
+		const label = options?.resume
+			? 'Context from previous attempt (session resumed):'
+			: 'Context from previous attempt:';
+		parts.push('', `${label}\n${contextContent}`);
+	}
+
+	return parts.join('\n');
 }
 
 export function getLogDir(groupSlug: string, baseDir?: string): string {
@@ -315,17 +332,23 @@ export function spawnWorker(
 	contextContent?: string,
 	baseDir?: string,
 	session?: SessionOptions,
+	issueContent?: IssueContent,
+	route?: string,
 ): WorkerHandle {
 	assertValidSlug(groupSlug);
 	assertValidIssue(issue);
 	assertValidWorktreePath(worktreePath);
 
-	const prompt = buildPrompt(issue, contextContent, { resume: session?.resume });
+	const prompt = buildPrompt(issue, contextContent, {
+		resume: session?.resume,
+		issueContent,
+		route,
+	});
 	return spawnClaudeProcess(issue, groupSlug, worktreePath, prompt, onEvent, baseDir, session);
 }
 
 /**
- * Spawn a Claude worker with a direct prompt (no /pick-up wrapping).
+ * Spawn a Claude worker with a direct prompt (no routing or issue wrapping).
  * Used for review and fix workers that don't correspond to a numeric issue.
  */
 export function spawnDirectWorker(

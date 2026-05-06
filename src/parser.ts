@@ -4,6 +4,7 @@ import type { IssueFetcher, IssueRef, PlanData, PRGroup, PRGroupStatus } from '.
 const PR_HEADING_RE = /^## PR (\d+): (.+)$/;
 const BRANCH_RE = /\*\*Branch:\*\*\s*`([^`]+)`/;
 const STATUS_RE = /\*\*Status:\*\*\s*(\w[\w-]*)/;
+const ROUTE_RE = /\*\*Route:\*\*\s*`([^`]+)`/;
 const ISSUE_REF_RE = /\| #(\d+) \|/;
 const DEPENDS_ON_RE = /^>\s*Depends on:\s*(.+)$/;
 const STANDALONE_RE = /^## Standalone\s*$/i;
@@ -64,6 +65,7 @@ export async function parsePlan(filePath: string): Promise<PlanData> {
 		status: PRGroupStatus;
 		issues: IssueRef[];
 		depends_on: number[];
+		route?: string;
 	} | null = null;
 
 	let inStandalone = false;
@@ -115,6 +117,12 @@ export async function parsePlan(filePath: string): Promise<PlanData> {
 			const statusMatch = STATUS_RE.exec(line);
 			if (statusMatch && isValidStatus(statusMatch[1])) {
 				currentGroup = { ...currentGroup, status: statusMatch[1] };
+				continue;
+			}
+
+			const routeMatch = ROUTE_RE.exec(line);
+			if (routeMatch) {
+				currentGroup = { ...currentGroup, route: routeMatch[1] };
 				continue;
 			}
 

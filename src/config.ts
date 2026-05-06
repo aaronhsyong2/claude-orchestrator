@@ -61,7 +61,12 @@ export function validateConfig(value: unknown): value is OrchestratorConfig {
 		typeof obj.issue_source === 'object' &&
 		obj.issue_source !== null &&
 		typeof obj.notifications === 'object' &&
-		obj.notifications !== null
+		obj.notifications !== null &&
+		(obj.routing === undefined ||
+			(typeof obj.routing === 'object' &&
+				obj.routing !== null &&
+				!Array.isArray(obj.routing) &&
+				Object.values(obj.routing as Record<string, unknown>).every((v) => typeof v === 'string')))
 	);
 }
 

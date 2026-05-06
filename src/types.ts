@@ -1,3 +1,9 @@
+export interface IssueContent {
+	readonly title: string;
+	readonly body: string;
+	readonly agentBrief: string | null;
+}
+
 export interface VerifyCommand {
 	readonly name: string;
 	readonly command: string;
@@ -39,6 +45,7 @@ export interface OrchestratorConfig {
 	readonly rule_files: readonly string[];
 	readonly issue_source: IssueSource;
 	readonly notifications: NotificationConfig;
+	readonly routing?: Readonly<Record<string, string>>;
 }
 
 export type AgentState = 'queued' | 'in_progress' | 'done' | 'failed';
@@ -61,6 +68,7 @@ export interface PRGroup {
 	readonly status: PRGroupStatus;
 	readonly issues: readonly IssueRef[];
 	readonly depends_on: readonly number[];
+	readonly route?: string;
 }
 
 export interface PlanData {
@@ -138,6 +146,8 @@ export interface SchedulerDeps {
 		onEvent: (event: WorkerEvent) => void,
 		contextContent?: string,
 		session?: SessionOptions,
+		issueContent?: IssueContent,
+		route?: string,
 	) => WorkerHandle;
 	readonly spawnDirectWorker: (
 		id: string,
@@ -158,6 +168,7 @@ export interface SchedulerDeps {
 	readonly shouldShutdown?: () => ShutdownSignal | null;
 	readonly createSession: (groupSlug: string, issue: string) => string;
 	readonly getSessionId: (groupSlug: string, issue: string) => string | null;
+	readonly fetchIssueContent?: (issueNumber: number, cwd: string) => Promise<IssueContent | null>;
 }
 
 export interface GroupResult {
@@ -232,6 +243,8 @@ export interface WorkerCapableDeps {
 		onEvent: (event: WorkerEvent) => void,
 		contextContent?: string,
 		session?: SessionOptions,
+		issueContent?: IssueContent,
+		route?: string,
 	) => WorkerHandle;
 	readonly spawnDirectWorker: (
 		id: string,

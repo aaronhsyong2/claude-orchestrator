@@ -226,7 +226,12 @@ describe('MainView', () => {
 describe('Footer', () => {
 	it('shows keybinding hints with default state', () => {
 		const { lastFrame } = render(
-			React.createElement(Footer, { activePanel: 0, screenMode: 'normal', overlay: 'none' }),
+			React.createElement(Footer, {
+				activePanel: 0,
+				screenMode: 'normal',
+				overlay: 'none',
+				shutdownStatus: 'none',
+			}),
 		);
 		const frame = lastFrame();
 		expect(frame).toContain('quit');
@@ -237,35 +242,60 @@ describe('Footer', () => {
 
 	it('shows contextual j/k label for groups panel', () => {
 		const { lastFrame } = render(
-			React.createElement(Footer, { activePanel: 0, screenMode: 'normal', overlay: 'none' }),
+			React.createElement(Footer, {
+				activePanel: 0,
+				screenMode: 'normal',
+				overlay: 'none',
+				shutdownStatus: 'none',
+			}),
 		);
 		expect(lastFrame()).toContain('group');
 	});
 
 	it('shows contextual j/k label for issues panel', () => {
 		const { lastFrame } = render(
-			React.createElement(Footer, { activePanel: 1, screenMode: 'normal', overlay: 'none' }),
+			React.createElement(Footer, {
+				activePanel: 1,
+				screenMode: 'normal',
+				overlay: 'none',
+				shutdownStatus: 'none',
+			}),
 		);
 		expect(lastFrame()).toContain('issue');
 	});
 
 	it('hides j/k hint for activity panel', () => {
 		const { lastFrame } = render(
-			React.createElement(Footer, { activePanel: 2, screenMode: 'normal', overlay: 'none' }),
+			React.createElement(Footer, {
+				activePanel: 2,
+				screenMode: 'normal',
+				overlay: 'none',
+				shutdownStatus: 'none',
+			}),
 		);
 		expect(lastFrame()).not.toContain('j/k');
 	});
 
 	it('reflects active overlay in hints', () => {
 		const { lastFrame } = render(
-			React.createElement(Footer, { activePanel: 0, screenMode: 'normal', overlay: 'deps' }),
+			React.createElement(Footer, {
+				activePanel: 0,
+				screenMode: 'normal',
+				overlay: 'deps',
+				shutdownStatus: 'none',
+			}),
 		);
 		expect(lastFrame()).toContain('deps:on');
 	});
 
 	it('shows next mode in + hint', () => {
 		const { lastFrame } = render(
-			React.createElement(Footer, { activePanel: 0, screenMode: 'half', overlay: 'none' }),
+			React.createElement(Footer, {
+				activePanel: 0,
+				screenMode: 'half',
+				overlay: 'none',
+				shutdownStatus: 'none',
+			}),
 		);
 		// half → next is full
 		expect(lastFrame()).toContain('layout:full');

@@ -1,9 +1,14 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { loadConfig as realLoadConfig } from './config.js';
+import { fetchIssueContent } from './issue-fetcher.js';
 import { parsePlan as realParsePlan } from './parser.js';
 import { hasExistingState, resumeFromState } from './resume.js';
 import { assignWork, getReadyGroups } from './scheduler.js';
+import {
+	createSession as realCreateSession,
+	getSessionId as realGetSessionId,
+} from './session-manager.js';
 import type { WorkerRegistry } from './shutdown.js';
 import { createWorkerRegistry, forceKillAll, readShutdownFile } from './shutdown.js';
 import {
@@ -27,7 +32,6 @@ import type {
 	WorkerEvent,
 } from './types.js';
 import { verify as realVerify } from './verification.js';
-import { createSession as realCreateSession, getSessionId as realGetSessionId } from './session-manager.js';
 import {
 	killWorker as realKillWorker,
 	spawnDirectWorker as realSpawnDirectWorker,
@@ -86,7 +90,16 @@ function wrapSpawnWorker(
 	original: SchedulerDeps['spawnWorker'],
 	registry: WorkerRegistry,
 ): SchedulerDeps['spawnWorker'] {
-	return (issue, groupSlug, worktreePath, onEvent, contextContent?, session?) => {
+	return (
+		issue,
+		groupSlug,
+		worktreePath,
+		onEvent,
+		contextContent?,
+		session?,
+		issueContent?,
+		route?,
+	) => {
 		let pid = -1;
 		const wrappedOnEvent = (event: WorkerEvent): void => {
 			if (event.event === 'exited') {
@@ -95,7 +108,16 @@ function wrapSpawnWorker(
 			handleToolActivity(event, groupSlug);
 			onEvent(event);
 		};
-		const handle = original(issue, groupSlug, worktreePath, wrappedOnEvent, contextContent, session);
+		const handle = original(
+			issue,
+			groupSlug,
+			worktreePath,
+			wrappedOnEvent,
+			contextContent,
+			session,
+			issueContent,
+			route,
+		);
 		pid = handle.pid;
 		registry.register(pid);
 		return handle;
@@ -130,7 +152,7 @@ export async function orchestrate(
 	const config = (overrides?.loadConfig ?? realLoadConfig)();
 	const plan = await (overrides?.parsePlan ?? realParsePlan)(planPath);
 
-	const rawDeps = overrides?.deps ?? buildRealDeps();
+	const rawDeps = overrides?.deps ?? buildRealDeps(config.issue_source.repo);
 	const progressDeps = wrapWithProgress(rawDeps, onProgress);
 
 	// Create worker PID registry for force shutdown
@@ -212,12 +234,31 @@ async function realExecCommand(
 	}
 }
 
-function buildRealDeps(): SchedulerDeps {
+function buildRealDeps(repo: string): SchedulerDeps {
 	return {
 		createWorktree: realCreate,
 		removeWorktree: realRemove,
-		spawnWorker: (issue, groupSlug, worktreePath, onEvent, contextContent?, session?) =>
-			realSpawnWorker(issue, groupSlug, worktreePath, onEvent, contextContent, undefined, session),
+		spawnWorker: (
+			issue,
+			groupSlug,
+			worktreePath,
+			onEvent,
+			contextContent?,
+			session?,
+			issueContent?,
+			route?,
+		) =>
+			realSpawnWorker(
+				issue,
+				groupSlug,
+				worktreePath,
+				onEvent,
+				contextContent,
+				undefined,
+				session,
+				issueContent,
+				route,
+			),
 		spawnDirectWorker: realSpawnDirectWorker,
 		killWorker: realKillWorker,
 		verify: realVerify,
@@ -230,6 +271,9 @@ function buildRealDeps(): SchedulerDeps {
 		notify: realNotify,
 		createSession: realCreateSession,
 		getSessionId: realGetSessionId,
+		fetchIssueContent: (issueNumber, cwd) => {
+			return fetchIssueContent(issueNumber, repo, cwd, realExecCommand);
+		},
 	};
 }
 

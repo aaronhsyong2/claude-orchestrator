@@ -2,12 +2,14 @@ import { startMergeDetector } from './merge-detector.js';
 import { buildPRBody, pushAndCreatePR } from './pr-creator.js';
 import { prReview } from './pr-reviewer.js';
 import { executeWithRetry, type RetryDeps } from './retry-coordinator.js';
+import { resolveRoute } from './routing-resolver.js';
 import { selfReview } from './self-reviewer.js';
 import { deriveSlug } from './slug.js';
 import type {
 	AssignWorkResult,
 	ExecResult,
 	GroupStatus,
+	IssueContent,
 	MergeDetectorDeps,
 	MergeDetectorResult,
 	OrchestratorConfig,
@@ -220,6 +222,32 @@ async function processIssue(
 			return { success: false, error: installResult.error };
 		}
 
+		// Resolve route for this issue.
+		// Label-based routing (config.routing + labels) is not yet wired — labels
+		// are GitHub metadata not currently available in PlanData. Only plan-level
+		// overrides (group.route) are resolved for now.
+		const route =
+			resolveRoute({
+				planOverride: group.route,
+				configRouting: config.routing,
+			}) ?? undefined;
+
+		// Pre-fetch issue content (graceful fallback on failure)
+		let issueContent: IssueContent | undefined;
+		if (deps.fetchIssueContent) {
+			try {
+				const fetched = await deps.fetchIssueContent(issueNumber, worktreeInfo.worktreePath);
+				if (fetched) {
+					issueContent = fetched;
+				}
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				process.stderr.write(
+					`[scheduler] issue pre-fetch failed for #${issueNumber}: ${message}\n`,
+				);
+			}
+		}
+
 		// coding
 		safeWriteStatus(deps, slug, {
 			...freshStatus(slug, group, deps, now),
@@ -237,6 +265,8 @@ async function processIssue(
 			currentStatus,
 			config,
 			coreWorkerDeps(deps, now),
+			issueContent,
+			route,
 		);
 
 		if (!retryResult.success) {
