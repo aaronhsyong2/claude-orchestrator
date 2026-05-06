@@ -6,7 +6,7 @@ tags:
   - first-run
   - dogfooding
 created: 2026-05-04
-updated: 2026-05-05
+updated: 2026-05-06
 status: active
 related:
   - "[Parent Epic: #38](https://github.com/aaronhsyong2/claude-orchestrator/issues/38)"
@@ -57,12 +57,13 @@ Logical grouping of issues from the first-run orchestrator fixes (#38) into PRs.
 ## PR 4: Configurable Routing + Pre-fetch + Constraints
 
 **Branch:** `feat/issue-45-46`
-**Status:** pending
+**PR:** #53
+**Status:** closed
 
 | Issue | Title | Status |
 |-------|-------|--------|
-| #45 | Remove /pick-up from workers, add configurable routing | Open |
-| #46 | Pre-fetch issue body + inject system prompt constraints | Open |
+| #45 | Remove /pick-up from workers, add configurable routing | Closed |
+| #46 | Pre-fetch issue body + inject system prompt constraints | Closed |
 
 ## PR 5: Resume CLI Command
 
