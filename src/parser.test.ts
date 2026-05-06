@@ -216,6 +216,39 @@ Some description with no PR groups.
 		expect(result.groups[0]?.issues[0]?.number).toBe(5);
 	});
 
+	it('extracts optional route field from PR group', async () => {
+		const content = `# Plan
+
+## PR 1: Routed Group
+
+**Branch:** \`feat/routed\`
+**Status:** pending
+**Route:** \`/tdd\`
+
+| Issue | Title | Status |
+|-------|-------|--------|
+| #10 | Some task | Open |
+`;
+		const result = await parsePlan(writePlan(content));
+		expect(result.groups[0]?.route).toBe('/tdd');
+	});
+
+	it('leaves route undefined when not specified', async () => {
+		const content = `# Plan
+
+## PR 1: No Route
+
+**Branch:** \`feat/no-route\`
+**Status:** pending
+
+| Issue | Title | Status |
+|-------|-------|--------|
+| #10 | Some task | Open |
+`;
+		const result = await parsePlan(writePlan(content));
+		expect(result.groups[0]?.route).toBeUndefined();
+	});
+
 	it('parses standalone heading case-insensitively', async () => {
 		const content = `# Plan
 

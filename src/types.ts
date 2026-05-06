@@ -39,6 +39,7 @@ export interface OrchestratorConfig {
 	readonly rule_files: readonly string[];
 	readonly issue_source: IssueSource;
 	readonly notifications: NotificationConfig;
+	readonly routing?: Readonly<Record<string, string>>;
 }
 
 export type AgentState = 'queued' | 'in_progress' | 'done' | 'failed';
@@ -61,6 +62,7 @@ export interface PRGroup {
 	readonly status: PRGroupStatus;
 	readonly issues: readonly IssueRef[];
 	readonly depends_on: readonly number[];
+	readonly route?: string;
 }
 
 export interface PlanData {

@@ -20,9 +20,11 @@ const KILL_POLL_INTERVAL_MS = 100;
 export function buildPrompt(
 	issueNumber: string,
 	contextContent?: string,
-	options?: { resume?: boolean },
+	options?: { resume?: boolean; route?: string },
 ): string {
-	const base = `/pick-up #${issueNumber}`;
+	const base = options?.route
+		? `${options.route} #${issueNumber}`
+		: `Implement issue #${issueNumber}`;
 	if (!contextContent) return base;
 	if (options?.resume) {
 		return `${base}\n\nContext from previous attempt (session resumed):\n${contextContent}`;
@@ -325,7 +327,7 @@ export function spawnWorker(
 }
 
 /**
- * Spawn a Claude worker with a direct prompt (no /pick-up wrapping).
+ * Spawn a Claude worker with a direct prompt (no routing or issue wrapping).
  * Used for review and fix workers that don't correspond to a numeric issue.
  */
 export function spawnDirectWorker(

@@ -4,6 +4,10 @@ import { loadConfig as realLoadConfig } from './config.js';
 import { parsePlan as realParsePlan } from './parser.js';
 import { hasExistingState, resumeFromState } from './resume.js';
 import { assignWork, getReadyGroups } from './scheduler.js';
+import {
+	createSession as realCreateSession,
+	getSessionId as realGetSessionId,
+} from './session-manager.js';
 import type { WorkerRegistry } from './shutdown.js';
 import { createWorkerRegistry, forceKillAll, readShutdownFile } from './shutdown.js';
 import {
@@ -27,7 +31,6 @@ import type {
 	WorkerEvent,
 } from './types.js';
 import { verify as realVerify } from './verification.js';
-import { createSession as realCreateSession, getSessionId as realGetSessionId } from './session-manager.js';
 import {
 	killWorker as realKillWorker,
 	spawnDirectWorker as realSpawnDirectWorker,
@@ -95,7 +98,14 @@ function wrapSpawnWorker(
 			handleToolActivity(event, groupSlug);
 			onEvent(event);
 		};
-		const handle = original(issue, groupSlug, worktreePath, wrappedOnEvent, contextContent, session);
+		const handle = original(
+			issue,
+			groupSlug,
+			worktreePath,
+			wrappedOnEvent,
+			contextContent,
+			session,
+		);
 		pid = handle.pid;
 		registry.register(pid);
 		return handle;

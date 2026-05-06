@@ -105,6 +105,19 @@ describe('validateConfig', () => {
 	it('returns false for wrong field types', () => {
 		expect(validateConfig({ ...DEFAULT_CONFIG, max_concurrent_agents: 'three' })).toBe(false);
 	});
+
+	it('accepts config with optional routing field', () => {
+		const withRouting = {
+			...DEFAULT_CONFIG,
+			routing: { 'bug+ready-for-agent': '/diagnose' },
+		};
+		expect(validateConfig(withRouting)).toBe(true);
+	});
+
+	it('accepts config without routing field', () => {
+		const { routing: _, ...withoutRouting } = { ...DEFAULT_CONFIG, routing: undefined };
+		expect(validateConfig(withoutRouting)).toBe(true);
+	});
 });
 
 describe('loadConfig', () => {

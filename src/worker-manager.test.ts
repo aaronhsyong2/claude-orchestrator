@@ -55,32 +55,41 @@ function createFakeProc(pid: number | undefined = 12345): FakeProc {
 }
 
 describe('buildPrompt', () => {
-	it('builds basic prompt without context', () => {
-		expect(buildPrompt('10')).toBe('/pick-up #10');
+	it('builds direct implementation prompt without context', () => {
+		expect(buildPrompt('10')).toBe('Implement issue #10');
 	});
 
 	it('builds prompt with context', () => {
 		const result = buildPrompt('10', 'Previous approach failed due to X');
 		expect(result).toBe(
-			'/pick-up #10\n\nContext from previous attempt:\nPrevious approach failed due to X',
+			'Implement issue #10\n\nContext from previous attempt:\nPrevious approach failed due to X',
 		);
 	});
 
 	it('handles empty context as no context', () => {
-		expect(buildPrompt('5', '')).toBe('/pick-up #5');
+		expect(buildPrompt('5', '')).toBe('Implement issue #5');
 	});
 
-	it('builds resume prompt with /pick-up and session-resumed context', () => {
+	it('builds resume prompt with session-resumed context', () => {
 		const result = buildPrompt('10', 'worker exited with code 1', { resume: true });
 		expect(result).toBe(
-			'/pick-up #10\n\nContext from previous attempt (session resumed):\nworker exited with code 1',
+			'Implement issue #10\n\nContext from previous attempt (session resumed):\nworker exited with code 1',
 		);
-		expect(result).toContain('/pick-up');
 	});
 
 	it('builds normal prompt when resume set but no context', () => {
 		const result = buildPrompt('10', undefined, { resume: true });
+		expect(result).toBe('Implement issue #10');
+	});
+
+	it('uses route as prompt prefix when provided', () => {
+		const result = buildPrompt('10', undefined, { route: '/pick-up' });
 		expect(result).toBe('/pick-up #10');
+	});
+
+	it('uses route with context', () => {
+		const result = buildPrompt('10', 'some context', { route: '/tdd' });
+		expect(result).toBe('/tdd #10\n\nContext from previous attempt:\nsome context');
 	});
 });
 
@@ -395,7 +404,7 @@ describe('spawnWorker', () => {
 
 		expect(spawnMock).toHaveBeenCalledWith(
 			'claude',
-			['-p', '--verbose', '--output-format', 'stream-json', '/pick-up #10'],
+			['-p', '--verbose', '--output-format', 'stream-json', 'Implement issue #10'],
 			expect.objectContaining({
 				cwd: tmpDir,
 				stdio: ['ignore', 'pipe', 'pipe'],
@@ -517,7 +526,7 @@ describe('spawnWorker', () => {
 				'--verbose',
 				'--output-format',
 				'stream-json',
-				'/pick-up #10\n\nContext from previous attempt:\nPrevious context here',
+				'Implement issue #10\n\nContext from previous attempt:\nPrevious context here',
 			],
 			expect.anything(),
 		);
